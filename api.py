@@ -8,7 +8,7 @@ from pydantic import BaseModel
 app = FastAPI()
 
 # 🔗 WEBHOOK MAKE
-MAKE_WEBHOOK_URL = "https://hook.eu1.make.com/w3edbls4itb6k5keoh0nt26xasp5swje"
+MAKE_WEBHOOK_URL = "https://hook.eu1.make.com/o8yg1shovrn0rmlcobmo2t941bqrgn8l"
 
 # 📦 MODEL
 class Question(BaseModel):
