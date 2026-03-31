@@ -4,3 +4,6 @@ langchain-openai
 langchain-community
 langchain-text-splitters
 faiss-cpu
+requests
+pydantic
+requests

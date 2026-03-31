@@ -1,85 +1,52 @@
+print("🔥 NOWA WERSJA API DZIAŁA 🔥")
+
 import os
+import requests
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from langchain_text_splitters import CharacterTextSplitter
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-from langchain_community.vectorstores import FAISS
-
 app = FastAPI()
 
+# 🔗 WEBHOOK MAKE
+MAKE_WEBHOOK_URL = "https://hook.eu1.make.com/w3edbls4itb6k5keoh0nt26xasp5swje"
+
+# 📦 MODEL
 class Question(BaseModel):
     question: str
 
-# 🔐 API KEY
-api_key = os.getenv("OPENAI_API_KEY")
-
-# 📂 dane
-try:
-    with open("Dane.txt", "r", encoding="utf-8") as f:
-        text = f.read()
-except:
-    text = "Brak danych"
-
-text_splitter = CharacterTextSplitter(
-    chunk_size=200,
-    chunk_overlap=20
-)
-texts = text_splitter.split_text(text)
-
-# 🧠 embeddings tylko jeśli masz API
-if api_key:
-    embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-else:
-    embeddings = None
-
-# ❗ KLUCZOWE: NIE TWORZYMY FAISS NA RAILWAY
-if embeddings and os.path.exists("faiss_index"):
-    db = FAISS.load_local(
-        "faiss_index",
-        embeddings,
-        allow_dangerous_deserialization=True
-    )
-else:
-    db = None
-
-# 🤖 model
-if api_key:
-    llm = ChatOpenAI(model="gpt-4o-mini")
-else:
-    llm = None
-
+# ✅ NOWY ENDPOINT TESTOWY (SPRAWDZENIE DEPLOY)
 @app.get("/")
 def home():
-    return {"message": "API działa 🚀"}
+    return {"message": "NOWA WERSJA 123 🚀"}
 
+# 🤖 GŁÓWNY ENDPOINT
 @app.post("/ask")
 async def ask_ai(q: Question):
 
-    # 🔹 brak AI → test
-    if not llm:
-        return {"answer": f"Test dziala: {q.question}"}
+    answer = f"[TEST MODE] {q.question}"
 
-    # 🔹 brak RAG → zwykły AI
-    if not db:
-        response = llm.invoke(q.question)
-        return {"answer": response.content}
+    print("📩 Otrzymano pytanie:", q.question)
 
-    # 🔹 RAG
-    docs = db.similarity_search(q.question, k=3)
-    context = "\n".join([doc.page_content for doc in docs])
+    try:
+        res = requests.post(
+            MAKE_WEBHOOK_URL,
+            json={
+                "question": q.question,
+                "answer": answer
+            }
+        )
 
-    prompt = f"""
-Odpowiadaj tylko na podstawie poniższych danych.
-Jeśli nie ma odpowiedzi w danych, napisz: "Nie wiem".
+        print("✅ WEBHOOK STATUS:", res.status_code)
+        print("📦 WEBHOOK RESPONSE:", res.text)
 
-DANE:
-{context}
+    except Exception as e:
+        print("❌ WEBHOOK ERROR:", str(e))
 
-PYTANIE:
-{q.question}
-"""
+    return {"answer": answer}
 
-    response = llm.invoke(prompt)
 
-    return {"answer": response.content}
+# 🚀 RAILWAY FIX
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("api:app", host="0.0.0.0", port=port)
