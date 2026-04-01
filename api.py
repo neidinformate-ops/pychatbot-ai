@@ -21,9 +21,10 @@ class Question(BaseModel):
     numer_domku: str
     sniadanie: bool
 
-# 🔥 FAQ PRO (logika odpowiedzi)
+# 🔥 FAQ PRO (multi-odpowiedzi + separator)
 def get_smart_answer(q: str, domek: str, sniadanie: bool):
     text = q.lower()
+    answers = []
 
     # 🟣 CENA
     if any(word in text for word in ["cena", "koszt", "ile"]):
@@ -37,24 +38,28 @@ def get_smart_answer(q: str, domek: str, sniadanie: bool):
             base = "Cena zależy od wybranego domku"
 
         if sniadanie:
-            return f"{base} + śniadania 🥐 (+30 zł/os)"
+            answers.append(f"{base} + śniadania 🥐 (+30 zł/os)")
         else:
-            return f"{base} (bez śniadań)"
+            answers.append(f"{base} (bez śniadań)")
 
     # 🟣 GODZINY
     if any(word in text for word in ["godzin", "meldunek", "wymeldowanie"]):
-        return "Zameldowanie od 15:00 🕒, wymeldowanie do 11:00."
+        answers.append("Zameldowanie od 15:00 🕒, wymeldowanie do 11:00.")
 
     # 🟣 ŚNIADANIA
     if "śniad" in text:
-        return "Śniadania dostarczamy w formie kosza do domku 🧺 (świeże pieczywo, kawa, lokalne produkty)."
+        answers.append("Śniadania dostarczamy w formie kosza do domku 🧺 (świeże pieczywo, kawa, lokalne produkty).")
 
     # 🟣 TERMINY
     if any(word in text for word in ["termin", "dostępność", "kiedy wolne"]):
-        return "Dostępne terminy sprawdzisz tutaj 👉 https://twojastrona.pl/kalendarz"
+        answers.append("Dostępne terminy sprawdzisz tutaj 👉 https://twojastrona.pl/kalendarz")
 
-    # 🔹 fallback (brak dopasowania)
-    return f"[TEST MODE] {q}"
+    # 🔹 fallback
+    if not answers:
+        return f"[TEST MODE] {q}"
+
+    # 🔥 SEPARATOR (czytelny)
+    return "\n\n".join(answers)
 
 
 # ✅ TEST
@@ -75,7 +80,7 @@ async def ask_ai(q: Question):
     print("🥐 Śniadanie:", q.sniadanie)
     print("❓ Pytanie:", q.question)
 
-    # 🔥 SMART ODPOWIEDŹ (bez AI)
+    # 🔥 SMART ODPOWIEDŹ
     answer = get_smart_answer(q.question, q.numer_domku, q.sniadanie)
 
     # 📦 dane do Make
