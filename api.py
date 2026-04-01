@@ -1,50 +1,34 @@
-print("🔥 NOWA WERSJA API PRO + FORMULARZ DZIAŁA 🔥")
+print("🔥 NOWA WERSJA API PRO DZIAŁA 🔥")
 
 import os
 import requests
 from datetime import datetime
 from fastapi import FastAPI
 from pydantic import BaseModel
-from fastapi.middleware.cors import CORSMiddleware
+from typing import Optional
 
 app = FastAPI()
-
-# 🔓 CORS (żeby frontend działał)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # 🔗 WEBHOOK MAKE
 MAKE_WEBHOOK_URL = "https://hook.eu1.make.com/228u53xafjidh3etv4d1u3tzbpozjeaq"
 
-# 📦 MODEL (ROZSZERZONY - FORMULARZ)
+# 📦 MODEL (wszystko opcjonalne oprócz question)
 class Question(BaseModel):
     question: str
-    imie: str
-    nazwisko: str
-    email: str
-    telefon: str
-    numer_domku: str
-    sniadanie: bool
-
-    # 🔥 NOWE POLA
-    data_pobytu: str = ""
-    osoby: str = ""
-    wyzywienie: bool = False
-    zwierze: bool = False
+    imie: Optional[str] = None
+    nazwisko: Optional[str] = None
+    email: Optional[str] = None
+    telefon: Optional[str] = None
+    numer_domku: Optional[str] = None
+    sniadanie: Optional[bool] = None
 
 
-# 🔥 FAQ PRO (multi-odpowiedzi)
-def get_smart_answer(q: str, domek: str, sniadanie: bool):
+# 🔥 SMART FAQ PRO (bez AI)
+def get_smart_answer(q: str, domek: Optional[str], sniadanie: Optional[bool]):
     text = q.lower()
-    answers = []
 
     # 🟣 CENA
-    if any(word in text for word in ["cena", "koszt", "ile"]):
+    if any(word in text for word in ["cena", "koszt", "ile", "platnosc"]):
         if domek == "1":
             base = "Domek 1: 300 zł / noc"
         elif domek == "2":
@@ -52,29 +36,31 @@ def get_smart_answer(q: str, domek: str, sniadanie: bool):
         elif domek == "3":
             base = "Domek 3: 400 zł / noc"
         else:
-            base = "Cena zależy od wybranego domku"
+            base = "Cena zależy od wybranego domku (1:300zł, 2:350zł, 3:400zł)"
 
         if sniadanie:
-            answers.append(f"{base} + śniadania 🥐 (+30 zł/os)")
+            return base + " + śniadania 🥐 (+30 zł/os)"
         else:
-            answers.append(f"{base} (bez śniadań)")
+            return base + " (bez śniadań)"
 
     # 🟣 GODZINY
-    if any(word in text for word in ["godzin", "meldunek", "wymeldowanie"]):
-        answers.append("Zameldowanie od 15:00 🕒, wymeldowanie do 11:00.")
+    if any(word in text for word in ["godzin", "meldunek", "wymeldowanie", "check", "kiedy"]):
+        return "Zameldowanie od 15:00 🕒, wymeldowanie do 11:00."
 
     # 🟣 ŚNIADANIA
-    if "śniad" in text:
-        answers.append("Śniadania dostarczamy w formie kosza do domku 🧺.")
+    if any(word in text for word in ["śniad", "sniad", "jedzenie", "posiłek"]):
+        return "Śniadania dostarczamy w formie kosza 🧺 (świeże pieczywo, kawa, lokalne produkty)."
 
     # 🟣 TERMINY
-    if any(word in text for word in ["termin", "dostępność", "kiedy wolne"]):
-        answers.append("Sprawdź dostępność 👉 https://twojastrona.pl/kalendarz")
+    if any(word in text for word in ["termin", "dostęp", "wolne", "kalendarz"]):
+        return "Sprawdź dostępność tutaj 👉 https://twojastrona.pl/kalendarz"
 
-    if not answers:
-        return f"[TEST MODE] {q}"
+    # 🟣 REZERWACJA INTENT
+    if any(word in text for word in ["rezerw", "zarezerwuj", "booking"]):
+        return "Kliknij przycisk 📋 Rezerwacja i wypełnij formularz."
 
-    return "\n\n".join(answers)
+    # 🔥 fallback (najważniejsze)
+    return f"[TEST MODE] Otrzymałem: {q}"
 
 
 # ✅ TEST
@@ -87,37 +73,31 @@ def home():
 @app.post("/ask")
 async def ask_ai(q: Question):
 
-    print("📩 NOWE ZGŁOSZENIE:")
-    print("👤", q.imie, q.nazwisko)
-    print("📧", q.email)
-    print("📞", q.telefon)
-    print("🏠 Domek:", q.numer_domku)
-    print("🥐 Śniadanie:", q.sniadanie)
-    print("📅 Data:", q.data_pobytu)
-    print("👥 Osoby:", q.osoby)
-    print("🍽 Wyżywienie:", q.wyzywienie)
-    print("🐶 Zwierzę:", q.zwierze)
+    print("\n📩 NOWE ZAPYTANIE ----------------------")
     print("❓ Pytanie:", q.question)
+    print("👤 Imię:", q.imie or "brak")
+    print("📧 Email:", q.email or "brak")
+    print("🏠 Domek:", q.numer_domku or "brak")
+    print("🥐 Śniadanie:", q.sniadanie)
 
-    # 🔥 ODPOWIEDŹ
+    # 🔥 SMART odpowiedź
     answer = get_smart_answer(q.question, q.numer_domku, q.sniadanie)
+
+    print("🧠 ODPOWIEDŹ:", answer)
 
     # 📦 dane do Make
     data = {
+        "question": q.question,
+        "answer": answer,
         "imie": q.imie,
         "nazwisko": q.nazwisko,
         "email": q.email,
         "telefon": q.telefon,
         "numer_domku": q.numer_domku,
         "sniadanie": q.sniadanie,
-        "data_pobytu": q.data_pobytu,
-        "osoby": q.osoby,
-        "wyzywienie": q.wyzywienie,
-        "zwierze": q.zwierze,
-        "question": q.question,
-        "answer": answer,
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "source": "api_pro_form"
+        "status": "nowa",
+        "source": "api_pro"
     }
 
     print("🚀 WYSYŁAM DO MAKE:", data)
