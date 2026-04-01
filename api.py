@@ -1,4 +1,5 @@
-
+# 🔥 FAKE BAZA (pamięć serwera)
+reservations = []
 from fastapi.middleware.cors import CORSMiddleware
 print("🔥 NOWA WERSJA API PRO DZIAŁA 🔥")
 import os
@@ -7,7 +8,24 @@ from datetime import datetime
 from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import Optional
+from datetime import datetime
 
+def is_date_conflict(new_from, new_to, domek):
+    for r in reservations:
+        if r["numer_domku"] != domek:
+            continue
+
+        existing_from = datetime.strptime(r["data_od"], "%Y-%m-%d")
+        existing_to = datetime.strptime(r["data_do"], "%Y-%m-%d")
+
+        new_from = datetime.strptime(new_from, "%Y-%m-%d")
+        new_to = datetime.strptime(new_to, "%Y-%m-%d")
+
+        # 🔥 SPRAWDZENIE NAKŁADANIA
+        if new_from <= existing_to and new_to >= existing_from:
+            return True
+
+    return False
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -34,7 +52,25 @@ class Question(BaseModel):
 # 🔥 SMART FAQ PRO (bez AI)
 def get_smart_answer(q: str, domek: Optional[str], sniadanie: Optional[bool]):
     text = q.lower()
+    # 🔒 BLOKOWANIE TERMINÓW
+    if q.data_od and q.data_do and q.numer_domku:
 
+        conflict = is_date_conflict(q.data_od, q.data_do, q.numer_domku)
+
+        if conflict:
+            answer = "❌ Ten termin jest już zajęty. Wybierz inną datę."
+            print("⛔ TERMIN ZAJĘTY")
+
+        else:
+            # ✅ zapisujemy rezerwację
+            reservations.append({
+                "numer_domku": q.numer_domku,
+                "data_od": q.data_od,
+                "data_do": q.data_do
+            })
+
+            print("✅ ZAPISANO REZERWACJĘ:", reservations)
+            answer = "✅ Termin dostępny — rezerwacja przyjęta!"
     # 🟣 CENA
     if any(word in text for word in ["cena", "koszt", "ile", "platnosc"]):
         if domek == "1":
