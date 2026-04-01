@@ -1,4 +1,5 @@
 # 🔥 FAKE BAZA (pamięć serwera)
+from fastapi.middleware.cors import CORSMiddleware
 reservations = []
 from fastapi.middleware.cors import CORSMiddleware
 print("🔥 NOWA WERSJA API PRO DZIAŁA 🔥")
@@ -27,14 +28,16 @@ def is_date_conflict(new_from, new_to, domek):
 
     return False
 app = FastAPI()
+
+from fastapi.middleware.cors import CORSMiddleware
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 🔥 na start (potem można ograniczyć)
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-)
-# 🔗 WEBHOOK MAKE
+)# 🔗 WEBHOOK MAKE
 MAKE_WEBHOOK_URL = "https://hook.eu1.make.com/228u53xafjidh3etv4d1u3tzbpozjeaq"
 
 # 📦 MODEL (wszystko opcjonalne oprócz question)
