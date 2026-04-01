@@ -28,7 +28,8 @@ class Question(BaseModel):
     telefon: Optional[str] = None
     numer_domku: Optional[str] = None
     sniadanie: Optional[bool] = None
-
+    data_od: Optional[str] = None
+    data_do: Optional[str] = None
 
 # 🔥 SMART FAQ PRO (bez AI)
 def get_smart_answer(q: str, domek: Optional[str], sniadanie: Optional[bool]):
@@ -102,11 +103,11 @@ async def ask_ai(q: Question):
         "telefon": q.telefon,
         "numer_domku": q.numer_domku,
         "sniadanie": q.sniadanie,
+        "data_od": q.data_od,
+        "data_do": q.data_do,
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "status": "nowa",
-        "source": "api_pro"
+        "status": "nowa"
     }
-
     print("🚀 WYSYŁAM DO MAKE:", data)
 
     try:
