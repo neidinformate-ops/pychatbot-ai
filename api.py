@@ -1,5 +1,6 @@
-print("🔥 NOWA WERSJA API PRO DZIAŁA 🔥")
 
+from fastapi.middleware.cors import CORSMiddleware
+print("🔥 NOWA WERSJA API PRO DZIAŁA 🔥")
 import os
 import requests
 from datetime import datetime
@@ -8,7 +9,13 @@ from pydantic import BaseModel
 from typing import Optional
 
 app = FastAPI()
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 🔥 na start (potem można ograniczyć)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 # 🔗 WEBHOOK MAKE
 MAKE_WEBHOOK_URL = "https://hook.eu1.make.com/228u53xafjidh3etv4d1u3tzbpozjeaq"
 
