@@ -24,16 +24,28 @@ reservations = []
 
 MAKE_WEBHOOK_URL = "https://hook.eu1.make.com/228u53xafjidh3etv4d1u3tzbpozjeaq"
 
-# 📄 DANE TXT
+# =========================
+# 📄 DANE TXT (RAG)
+# =========================
+def normalize(text):
+    return text.lower()\
+        .replace("ą","a").replace("ę","e").replace("ś","s")\
+        .replace("ć","c").replace("ł","l").replace("ó","o")\
+        .replace("ż","z").replace("ź","z")
+
 def load_knowledge():
     try:
         with open("dane.txt", "r", encoding="utf-8") as f:
-            return f.read().lower().split("\n")
+            lines = [normalize(x.strip()) for x in f.readlines() if len(x.strip()) > 3]
+            return lines
     except:
         return []
 
 KNOWLEDGE = load_knowledge()
 
+# =========================
+# 📦 MODEL
+# =========================
 class Question(BaseModel):
     question: str
     imie: Optional[str] = None
@@ -45,8 +57,9 @@ class Question(BaseModel):
     data_od: Optional[str] = None
     data_do: Optional[str] = None
 
-
-# 🔥 KONFLIKT
+# =========================
+# 🔥 KONFLIKT DAT
+# =========================
 def is_date_conflict(new_from, new_to, domek):
     for r in reservations:
         if r["numer_domku"] != domek:
@@ -63,29 +76,41 @@ def is_date_conflict(new_from, new_to, domek):
 
     return False
 
-
-# 🔍 PROSTY RAG (dopasowanie zdań)
+# =========================
+# 🔍 RAG PRO (lepsze dopasowanie)
+# =========================
 def rag_search(question):
 
-    q = question.lower().split()
+    q = normalize(question)
+    words = q.split()
 
-    best_match = None
+    best = None
     best_score = 0
 
     for line in KNOWLEDGE:
-        score = sum(1 for word in q if word in line)
+        score = 0
 
-        if score > best_score and len(line) > 5:
+        # dopasowanie słów
+        for w in words:
+            if w in line:
+                score += 1
+
+        # bonus za frazę
+        if q in line:
+            score += 3
+
+        if score > best_score:
             best_score = score
-            best_match = line
+            best = line
 
-    if best_score >= 2:  # próg dopasowania
-        return best_match.capitalize()
+    if best_score >= 1:
+        return best.capitalize()
 
     return None
 
-
-# 🤖 AI (minimalne użycie)
+# =========================
+# 🤖 AI (tylko fallback)
+# =========================
 def ai_answer(question):
 
     if len(question) < 6:
@@ -95,10 +120,20 @@ def ai_answer(question):
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Odpowiadaj max 1 zdaniem, konkretnie."},
+                {
+                    "role": "system",
+                    "content": f"""
+Odpowiadasz krótko (1 zdanie).
+Korzystaj TYLKO z tych danych:
+
+{chr(10).join(KNOWLEDGE)}
+
+Jeśli brak odpowiedzi → napisz "Brak informacji".
+"""
+                },
                 {"role": "user", "content": question}
             ],
-            max_tokens=50
+            max_tokens=60
         )
 
         return response.choices[0].message.content.strip()
@@ -106,8 +141,9 @@ def ai_answer(question):
     except:
         return None
 
-
+# =========================
 # 🧠 LOGIKA
+# =========================
 def get_smart_answer(q: Question):
 
     text = q.question.lower()
@@ -143,7 +179,7 @@ def get_smart_answer(q: Question):
 
         return "✅ Rezerwacja przyjęta!"
 
-    # 🔍 RAG (NAJWAŻNIEJSZE)
+    # 🔍 RAG (najpierw)
     rag = rag_search(q.question)
     if rag:
         return rag
@@ -155,8 +191,9 @@ def get_smart_answer(q: Question):
 
     return "Mogę pomóc w rezerwacji lub odpowiedzieć na pytania 🙂"
 
-
+# =========================
 # 🚀 API
+# =========================
 @app.post("/ask")
 async def ask(q: Question):
 
@@ -180,11 +217,9 @@ async def ask(q: Question):
 
     return {"answer": answer}
 
-
 @app.get("/availability")
 def availability():
     return reservations
-
 
 # 🚀 RUN
 if __name__ == "__main__":

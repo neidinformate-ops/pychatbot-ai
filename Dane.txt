@@ -1,19 +1,33 @@
 cena domek 1 300 zł za noc
+koszt domek 1 300 zł
+
 cena domek 2 350 zł za noc
+koszt domek 2 350 zł
+
 cena domek 3 400 zł za noc
+koszt domek 3 400 zł
 
 zameldowanie od 15:00
+check in 15:00
+
 wymeldowanie do 11:00
+check out 11:00
 
 śniadania w koszu do domku zawierają pieczywo kawa lokalne produkty
+śniadanie koszt 30 zł
+śniadanie cena 30 zł
 
-domki znajdują się w pobliżu Załęczańskiego Parku Krajobrazowego
-w okolicy można spacerować jeździć na rowerze i odpoczywać nad rzeką Wartą
+domki znajdują się w pobliżu zaleczanskiego parku krajobrazowego
 
-w pobliżu są trasy rowerowe oraz spływy kajakowe
+w okolicy można spacerować jeździć na rowerze i odpoczywać nad rzeką wartą
+atrakcje rowery spacery rzeka natura cisza
+
+trasy rowerowe oraz spływy kajakowe
 
 parking jest darmowy dla gości
+parking bezpłatny
 
 zwierzęta są akceptowane po wcześniejszym uzgodnieniu
+psy dozwolone po uzgodnieniu
 
-w okolicy można zobaczyć naturę lasy rzekę oraz ciszę z dala od miasta
+natura las rzeka cisza spokój
