@@ -1,5 +1,3 @@
-# 🔥 NOWA WERSJA API PRO DZIAŁA 🔥
-
 import os
 import requests
 from datetime import datetime
@@ -7,10 +5,12 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import Optional
 from fastapi.middleware.cors import CORSMiddleware
+from openai import OpenAI
+
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 app = FastAPI()
 
-# 🔓 CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,13 +19,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 🔥 FAKE BAZA
+# 🔥 BAZA
 reservations = []
 
-# 🔗 MAKE
 MAKE_WEBHOOK_URL = "https://hook.eu1.make.com/228u53xafjidh3etv4d1u3tzbpozjeaq"
 
-# 📦 MODEL
+# 📄 DANE TXT
+def load_knowledge():
+    try:
+        with open("dane.txt", "r", encoding="utf-8") as f:
+            return f.read().lower().split("\n")
+    except:
+        return []
+
+KNOWLEDGE = load_knowledge()
+
 class Question(BaseModel):
     question: str
     imie: Optional[str] = None
@@ -37,7 +45,8 @@ class Question(BaseModel):
     data_od: Optional[str] = None
     data_do: Optional[str] = None
 
-# 🔥 SPRAWDZENIE KONFLIKTU
+
+# 🔥 KONFLIKT
 def is_date_conflict(new_from, new_to, domek):
     for r in reservations:
         if r["numer_domku"] != domek:
@@ -54,15 +63,58 @@ def is_date_conflict(new_from, new_to, domek):
 
     return False
 
-# 🔥 SMART FAQ + BLOKADY
+
+# 🔍 PROSTY RAG (dopasowanie zdań)
+def rag_search(question):
+
+    q = question.lower().split()
+
+    best_match = None
+    best_score = 0
+
+    for line in KNOWLEDGE:
+        score = sum(1 for word in q if word in line)
+
+        if score > best_score and len(line) > 5:
+            best_score = score
+            best_match = line
+
+    if best_score >= 2:  # próg dopasowania
+        return best_match.capitalize()
+
+    return None
+
+
+# 🤖 AI (minimalne użycie)
+def ai_answer(question):
+
+    if len(question) < 6:
+        return None
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Odpowiadaj max 1 zdaniem, konkretnie."},
+                {"role": "user", "content": question}
+            ],
+            max_tokens=50
+        )
+
+        return response.choices[0].message.content.strip()
+
+    except:
+        return None
+
+
+# 🧠 LOGIKA
 def get_smart_answer(q: Question):
 
     text = q.question.lower()
 
-    # 🔴 BLOKADA ADMINA
+    # 🔴 BLOKADA
     if "blokada" in text:
         if q.data_od and q.data_do and q.numer_domku:
-
             reservations.append({
                 "numer_domku": q.numer_domku,
                 "data_od": q.data_od,
@@ -72,16 +124,11 @@ def get_smart_answer(q: Question):
                 "telefon": "",
                 "email": ""
             })
-
-            print("🔴 BLOKADA:", reservations)
             return "🔴 Termin zablokowany"
 
     # 📅 REZERWACJA
     if q.data_od and q.data_do and q.numer_domku:
-
-        conflict = is_date_conflict(q.data_od, q.data_do, q.numer_domku)
-
-        if conflict:
+        if is_date_conflict(q.data_od, q.data_do, q.numer_domku):
             return "❌ Niestety, ale termin zajęty."
 
         reservations.append({
@@ -94,50 +141,50 @@ def get_smart_answer(q: Question):
             "email": q.email
         })
 
-        print("✅ REZERWACJA:", reservations)
-
         return "✅ Rezerwacja przyjęta!"
 
-    # 💰 CENY
-    if "cena" in text:
-        return "Domek 1: 300zł | Domek 2: 350zł | Domek 3: 400zł"
+    # 🔍 RAG (NAJWAŻNIEJSZE)
+    rag = rag_search(q.question)
+    if rag:
+        return rag
 
-    # 🕒 GODZINY
-    if "godzin" in text:
-        return "Zameldowanie 15:00, wymeldowanie 11:00"
+    # 🤖 AI fallback
+    ai = ai_answer(q.question)
+    if ai:
+        return ai
 
-    return "Napisz 'rezerwacja' aby rozpocząć booking."
+    return "Mogę pomóc w rezerwacji lub odpowiedzieć na pytania 🙂"
 
-# 🧠 API
+
+# 🚀 API
 @app.post("/ask")
 async def ask(q: Question):
 
     answer = get_smart_answer(q)
 
-    data = {
-        "question": q.question,
-        "answer": answer,
-        "imie": q.imie,
-        "nazwisko": q.nazwisko,
-        "email": q.email,
-        "telefon": q.telefon,
-        "numer_domku": q.numer_domku,
-        "data_od": q.data_od,
-        "data_do": q.data_do,
-        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    }
-
     try:
-        requests.post(MAKE_WEBHOOK_URL, json=data, timeout=5)
+        requests.post(MAKE_WEBHOOK_URL, json={
+            "question": q.question,
+            "answer": answer,
+            "imie": q.imie,
+            "nazwisko": q.nazwisko,
+            "email": q.email,
+            "telefon": q.telefon,
+            "numer_domku": q.numer_domku,
+            "data_od": q.data_od,
+            "data_do": q.data_do,
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }, timeout=5)
     except:
-        print("❌ Make error")
+        pass
 
     return {"answer": answer}
 
-# 📅 AVAILABILITY (KLUCZOWE!)
+
 @app.get("/availability")
 def availability():
     return reservations
+
 
 # 🚀 RUN
 if __name__ == "__main__":
