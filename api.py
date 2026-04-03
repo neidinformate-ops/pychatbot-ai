@@ -39,7 +39,7 @@ reservations = load_db()
 MAKE_WEBHOOK_URL = "https://hook.eu1.make.com/228u53xafjidh3etv4d1u3tzbpozjeaq"
 
 # =========================
-# 📄 RAG NORMALIZACJA
+# 📄 NORMALIZACJA
 # =========================
 def normalize(text):
     text = text.lower()
@@ -52,7 +52,8 @@ def normalize(text):
         "cenie": "cena",
         "ceny": "cena",
         "domku": "domek",
-        "domki": "domek"
+        "domki": "domek",
+        "domków": "domek"
     }
 
     for k, v in replacements.items():
@@ -110,19 +111,45 @@ def is_date_conflict(new_from, new_to, domek):
 
     return False
 
-# 🧠 INTELIGENCJA (PRZED RAG)
+# =========================
+# 🧠 INTENT DETECTION
+# =========================
+def detect_intent(question):
 
-if "koszt domk" in text or "cena domk" in text:
-    return "Domek 1: 300 zł, Domek 2: 350 zł, Domek 3: 400 zł"
+    q = normalize(question)
 
-if "sniadan" in text:
-    return "Śniadanie kosztuje 30 zł za osobę"
+    intents = {
+        "cena": ["cena", "koszt", "ile"],
+        "sniadanie": ["sniadanie"],
+        "termin": ["termin", "dostep", "wolne"]
+    }
 
-if "wolne termin" in text or "dostepnosc" in text:
-    return "Kliknij 📅 Rezerwacja aby sprawdzić dostępność"
+    detected = []
+
+    for intent, words in intents.items():
+        for w in words:
+            if w in q:
+                detected.append(intent)
+                break
+
+    return detected
+
+
+def handle_intent(intents, q):
+
+    if "cena" in intents:
+        return "Domek 1: 300 zł, Domek 2: 350 zł, Domek 3: 400 zł"
+
+    if "sniadanie" in intents:
+        return "Śniadanie kosztuje 30 zł za osobę"
+
+    if "termin" in intents:
+        return "Kliknij 📅 Rezerwacja aby sprawdzić dostępność"
+
+    return None
 
 # =========================
-# 🔍 RAG PRO
+# 🔍 RAG
 # =========================
 def rag_search(question):
 
@@ -146,13 +173,13 @@ def rag_search(question):
             best_score = score
             best = line
 
-    if best and (best_score >= 1 or any(w in best for w in words)):
+    if best and best_score >= 1:
         return best.capitalize()
 
     return None
 
 # =========================
-# 🤖 AI LOGICZNY
+# 🤖 AI
 # =========================
 def ai_answer(question):
 
@@ -163,19 +190,7 @@ def ai_answer(question):
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {
-                    "role": "system",
-                    "content": f"""
-Odpowiadaj logicznie i krótko (1 zdanie).
-Korzystaj tylko z danych:
-
-{chr(10).join(KNOWLEDGE)}
-
-Jeśli brak dokładnej odpowiedzi:
-- spróbuj wywnioskować
-- nie pisz "brak informacji"
-"""
-                },
+                {"role": "system", "content": "Odpowiadaj krótko i logicznie (1 zdanie)"},
                 {"role": "user", "content": question}
             ],
             max_tokens=60
@@ -190,15 +205,14 @@ Jeśli brak dokładnej odpowiedzi:
 # 🧠 LOGIKA
 # =========================
 def get_smart_answer(q: Question):
+
     text = q.question.lower()
 
-    # 🧠 INTENT (NOWE)
+    # 🧠 INTENT
     intents = detect_intent(q.question)
     intent_answer = handle_intent(intents, normalize(q.question))
-
     if intent_answer:
         return intent_answer
-    text = q.question.lower()
 
     # 🔴 BLOKADA
     if "blokada" in text:
@@ -239,7 +253,7 @@ def get_smart_answer(q: Question):
     if rag:
         return rag
 
-    # 🤖 AI fallback
+    # 🤖 AI
     ai = ai_answer(q.question)
     if ai:
         return ai
@@ -253,16 +267,7 @@ def get_smart_answer(q: Question):
 async def ask(q: Question):
 
     answer = get_smart_answer(q)
-    # 🧠 INTELIGENCJA (PRZED RAG)
 
-    if "koszt domk" in text or "cena domk" in text:
-        return "Domek 1: 300 zł, Domek 2: 350 zł, Domek 3: 400 zł"
-
-    if "sniadan" in text:
-        return "Śniadanie kosztuje 30 zł za osobę"
-
-    if "wolne termin" in text or "dostepnosc" in text:
-        return "Kliknij 📅 Rezerwacja aby sprawdzić dostępność"
     try:
         requests.post(MAKE_WEBHOOK_URL, json={
             "question": q.question,
