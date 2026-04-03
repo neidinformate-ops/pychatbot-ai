@@ -1,4 +1,4 @@
-# 🔥 API PRO V2
+print("🔥 FINAL SYSTEM V3 🔥")
 
 import os
 import requests
@@ -13,7 +13,6 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -33,7 +32,6 @@ class Question(BaseModel):
     data_od: Optional[str] = None
     data_do: Optional[str] = None
 
-# 🔒 konflikt
 def is_conflict(new_from, new_to, domek):
     for r in reservations:
         if r["numer_domku"] != domek:
@@ -48,59 +46,57 @@ def is_conflict(new_from, new_to, domek):
             return True
     return False
 
-# 📅 dostępność
+# 🧠 LOGIKA
+def smart_answer(text):
+
+    t = text.lower()
+
+    if t in ["tak","ok","jasne"]:
+        return "Super 👍 kliknij przycisk rezerwacji poniżej 📅"
+
+    if t in ["nie"]:
+        return "OK 😊 jeśli zmienisz zdanie, daj znać!"
+
+    if "cena" in t:
+        return "Domek 1: 300zł, Domek 2: 350zł, Domek 3: 400zł 💰"
+
+    if "okolica" in t:
+        return "Jesteśmy przy Załęczańskim Parku Krajobrazowym 🌿"
+
+    return "Mogę pomóc w rezerwacji lub odpowiedzieć na pytania 😊"
+
+def add_cta(answer, question):
+    if "cena" in question.lower():
+        return answer + " 👉 Sprawdzić dostępne terminy?"
+    return answer
+
 @app.get("/availability")
 def availability():
     return reservations
 
-# 🧠 FAQ bez AI
-def smart_answer(q):
-    text = q.lower()
-
-    if "cena" in text:
-        return "Domek 1: 300zł, Domek 2: 350zł, Domek 3: 400zł 💰"
-
-    if "godzin" in text:
-        return "Zameldowanie 15:00, wymeldowanie 11:00 🕒"
-
-    if "śniad" in text:
-        return "Śniadania dostarczamy w koszu do domku 🧺"
-
-    if "okolica" in text:
-        return "Domki są przy Załęczańskim Parku Krajobrazowym 🌿 — idealne na spacer i odpoczynek"
-
-    if "rower" in text:
-        return "W okolicy są trasy rowerowe 🚴"
-
-    return "Chcesz sprawdzić dostępne terminy? 📅"
-
 @app.post("/ask")
 async def ask(q: Question):
 
-    # 📅 REZERWACJA
     if q.data_od and q.data_do and q.numer_domku:
 
         if is_conflict(q.data_od, q.data_do, q.numer_domku):
             return {"answer": "❌ Termin zajęty"}
 
         reservations.append({
+            "imie": q.imie,
+            "nazwisko": q.nazwisko,
+            "email": q.email,
+            "telefon": q.telefon,
             "numer_domku": q.numer_domku,
             "data_od": q.data_od,
-            "data_do": q.data_do
+            "data_do": q.data_do,
+            "sniadanie": q.sniadanie,
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M")
         })
 
-        answer = "✅ Rezerwacja przyjęta"
+        return {"answer": "✅ Rezerwacja przyjęta 🎉"}
 
-    else:
-        answer = smart_answer(q.question)
-
-    data = q.dict()
-    data["answer"] = answer
-    data["time"] = datetime.now().strftime("%Y-%m-%d %H:%M")
-
-    try:
-        requests.post(MAKE_WEBHOOK_URL, json=data)
-    except:
-        pass
+    answer = smart_answer(q.question)
+    answer = add_cta(answer, q.question)
 
     return {"answer": answer}
