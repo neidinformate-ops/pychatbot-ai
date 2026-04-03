@@ -1,14 +1,11 @@
 import os
-import requests
 import json
+import secrets
 from datetime import datetime
-from fastapi import FastAPI
+from fastapi import FastAPI, Header
 from pydantic import BaseModel
 from typing import Optional
 from fastapi.middleware.cors import CORSMiddleware
-from openai import OpenAI
-
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 app = FastAPI()
 
@@ -20,8 +17,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
+
 # =========================
-# 💾 BAZA
+# 💾 DB
 # =========================
 def load_db():
     try:
@@ -37,206 +36,122 @@ def save_db(data):
 reservations = load_db()
 
 # =========================
-# 🧠 SESSION
+# 🔐 AUTH
 # =========================
-sessions = {}
+tokens = set()
 
-def get_session(user_id="default"):
-    if user_id not in sessions:
-        sessions[user_id] = {"step": None, "data": {}}
-    return sessions[user_id]
+class LoginData(BaseModel):
+    password: str
+
+@app.post("/login")
+def login(data: LoginData):
+    if data.password == ADMIN_PASSWORD:
+        token = secrets.token_hex(16)
+        tokens.add(token)
+        return {"token": token}
+    return {"error": "unauthorized"}
+
+def verify(token):
+    return token in tokens
 
 # =========================
 # 📦 MODEL
 # =========================
 class Question(BaseModel):
     question: str
-    user_id: Optional[str] = "default"
     imie: Optional[str] = None
-    nazwisko: Optional[str] = None
-    email: Optional[str] = None
     telefon: Optional[str] = None
     numer_domku: Optional[str] = None
     data_od: Optional[str] = None
     data_do: Optional[str] = None
-    sniadanie: Optional[bool] = None
-
-# =========================
-# 💰 CENY
-# =========================
-PRICES = {
-    "1": 300,
-    "2": 350,
-    "3": 400
-}
 
 # =========================
 # 🔥 KONFLIKT
 # =========================
-def is_date_conflict(new_from, new_to, domek):
+def is_conflict(f, t, domek):
     for r in reservations:
         if r["numer_domku"] != domek:
             continue
-
-        f = datetime.strptime(r["data_od"], "%Y-%m-%d")
-        t = datetime.strptime(r["data_do"], "%Y-%m-%d")
-
-        nf = datetime.strptime(new_from, "%Y-%m-%d")
-        nt = datetime.strptime(new_to, "%Y-%m-%d")
-
-        if nf <= t and nt >= f:
+        if f <= r["data_do"] and t >= r["data_od"]:
             return True
     return False
 
 # =========================
-# 💰 LICZENIE CENY (NOWE)
+# 🤖 GŁÓWNA LOGIKA
 # =========================
-def calculate_price(data):
+def handle(q: Question):
 
-    start = datetime.strptime(data["data_od"], "%Y-%m-%d")
-    end = datetime.strptime(data["data_do"], "%Y-%m-%d")
+    # 🔴 BLOKADA
+    if "blokada" in q.question:
+        reservations.append({
+            "numer_domku": q.numer_domku,
+            "data_od": q.data_od,
+            "data_do": q.data_do,
+            "imie": "ADMIN",
+            "telefon": ""
+        })
+        save_db(reservations)
+        return "🔴 Zablokowano"
 
-    nights = (end - start).days
-    base = PRICES.get(data["numer_domku"], 0)
+    # 📅 REZERWACJA
+    if q.data_od and q.data_do and q.numer_domku:
 
-    total = nights * base
-
-    if data.get("sniadanie"):
-        total += nights * 30
-
-    return total
-
-# =========================
-# 🤖 FLOW
-# =========================
-def booking_flow(q: Question):
-
-    session = get_session(q.user_id)
-    step = session["step"]
-    data = session["data"]
-    text = q.question.lower()
-
-    if "rezerw" in text and not step:
-        session["step"] = "date_from"
-        return "Podaj datę przyjazdu (YYYY-MM-DD)"
-
-    if step == "date_from":
-        data["data_od"] = q.question
-        session["step"] = "date_to"
-        return "Podaj datę wyjazdu"
-
-    if step == "date_to":
-        data["data_do"] = q.question
-        session["step"] = "domek"
-        return "Który domek (1-3)?"
-
-    if step == "domek":
-        data["numer_domku"] = q.question
-        session["step"] = "sniadanie"
-        return "Czy śniadanie? (tak/nie)"
-
-    if step == "sniadanie":
-        data["sniadanie"] = "tak" in text
-        session["step"] = "name"
-        return "Podaj imię"
-
-    if step == "name":
-        data["imie"] = q.question
-        session["step"] = "phone"
-        return "Podaj telefon"
-
-    if step == "phone":
-        data["telefon"] = q.question
-
-        if is_date_conflict(data["data_od"], data["data_do"], data["numer_domku"]):
-            session["step"] = None
-            session["data"] = {}
+        if is_conflict(q.data_od, q.data_do, q.numer_domku):
             return "❌ Termin zajęty"
 
-        price = calculate_price(data)
-
         reservations.append({
-            **data,
-            "nazwisko": "",
-            "email": "",
-            "price": price
+            "numer_domku": q.numer_domku,
+            "data_od": q.data_od,
+            "data_do": q.data_do,
+            "imie": q.imie,
+            "telefon": q.telefon
         })
 
         save_db(reservations)
+        return "✅ Rezerwacja przyjęta"
 
-        session["step"] = None
-        session["data"] = {}
-
-        return f"✅ Rezerwacja przyjęta. Cena: {price} zł"
-
-    return None
-
-# =========================
-# 🧠 ODPOWIEDŹ
-# =========================
-def get_smart_answer(q: Question):
-
-    flow = booking_flow(q)
-    if flow:
-        return flow
-
-    return "Napisz 'rezerwacja' aby rozpocząć 🙂"
+    return "Napisz rezerwacja lub wybierz daty"
 
 # =========================
 # 🚀 API
 # =========================
 @app.post("/ask")
 async def ask(q: Question):
-
-    answer = get_smart_answer(q)
-
-    return {"answer": answer}
+    return {"answer": handle(q)}
 
 @app.get("/availability")
 def availability():
     return load_db()
 
-
+# DELETE
 @app.delete("/reservation")
-def delete_reservation(data: dict):
+def delete(data: dict, token: str = Header(None)):
+    if not verify(token):
+        return {"error":"unauthorized"}
+
     global reservations
-
-    new_list = []
-    for r in reservations:
-        if not (
-            r["data_od"] == data["data_od"] and
-            r["data_do"] == data["data_do"] and
-            r["telefon"] == data["telefon"]
-        ):
-            new_list.append(r)
-
-    reservations = new_list
+    reservations = [r for r in reservations if r["telefon"] != data["telefon"]]
     save_db(reservations)
+    return {"ok":True}
 
-    return {"status": "deleted"}
+# UNBLOCK
+@app.delete("/unblock")
+def unblock(data: dict, token: str = Header(None)):
+    if not verify(token):
+        return {"error":"unauthorized"}
+
+    global reservations
+    reservations = [
+        r for r in reservations
+        if not (
+            r["numer_domku"] == data["numer_domku"] and
+            r["data_od"] == data["data_od"]
+        )
+    ]
+    save_db(reservations)
+    return {"ok":True}
 
 # RUN
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("api:app", host="0.0.0.0", port=port)
-
-
-    @app.delete("/unblock")
-    def unblock(data: dict):
-        global reservations
-
-        new_list = []
-        for r in reservations:
-            if not (
-                    r["numer_domku"] == data["numer_domku"] and
-                    r["data_od"] == data["data_od"] and
-                    r["data_do"] == data["data_do"] and
-                    r.get("imie") == "ADMIN"
-            ):
-                new_list.append(r)
-
-        reservations = new_list
-        save_db(reservations)
-
-        return {"status": "unblocked"}
+    uvicorn.run("api:app", host="0.0.0.0", port=8000)
