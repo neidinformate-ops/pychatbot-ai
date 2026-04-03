@@ -21,7 +21,7 @@ app.add_middleware(
 )
 
 # =========================
-# 💾 BAZA (ZAPIS DO PLIKU)
+# 💾 BAZA
 # =========================
 def load_db():
     try:
@@ -45,14 +45,10 @@ def normalize(text):
     text = text.lower()
 
     replacements = {
-        "śniadania": "sniadanie",
         "śniadanie": "sniadanie",
+        "śniadania": "sniadanie",
         "kosztu": "koszt",
-        "koszty": "koszt",
-        "cenie": "cena",
         "ceny": "cena",
-        "domku": "domek",
-        "domki": "domek",
         "domków": "domek"
     }
 
@@ -112,16 +108,19 @@ def is_date_conflict(new_from, new_to, domek):
     return False
 
 # =========================
-# 🧠 INTENT DETECTION
+# 🧠 INTENT (ROZSZERZONY)
 # =========================
 def detect_intent(question):
-
     q = normalize(question)
 
     intents = {
         "cena": ["cena", "koszt", "ile"],
         "sniadanie": ["sniadanie"],
-        "termin": ["termin", "dostep", "wolne"]
+        "termin": ["termin", "dostep", "wolne"],
+        "zwierzeta": ["pies", "zwierze"],
+        "parking": ["parking"],
+        "wyposazenie": ["wifi", "tv", "klimatyzacja", "jacuzzi", "kuchnia"],
+        "atrakcje": ["atrakcje", "co robic", "okolica"]
     }
 
     detected = []
@@ -134,8 +133,7 @@ def detect_intent(question):
 
     return detected
 
-
-def handle_intent(intents, q):
+def handle_intent(intents):
 
     if "cena" in intents:
         return "Domek 1: 300 zł, Domek 2: 350 zł, Domek 3: 400 zł"
@@ -143,13 +141,25 @@ def handle_intent(intents, q):
     if "sniadanie" in intents:
         return "Śniadanie kosztuje 30 zł za osobę"
 
+    if "zwierzeta" in intents:
+        return "Tak, zwierzęta są dozwolone po uzgodnieniu"
+
+    if "parking" in intents:
+        return "Parking jest darmowy dla gości"
+
+    if "wyposazenie" in intents:
+        return "Domki mają wifi, tv, kuchnię, a domek 3 dodatkowo jacuzzi"
+
+    if "atrakcje" in intents:
+        return "Rowery, kajaki, spacery i natura w okolicy"
+
     if "termin" in intents:
         return "Kliknij 📅 Rezerwacja aby sprawdzić dostępność"
 
     return None
 
 # =========================
-# 🔍 RAG
+# 🔍 RAG (ULEPSZONY)
 # =========================
 def rag_search(question):
 
@@ -164,16 +174,16 @@ def rag_search(question):
 
         for w in words:
             if w in line:
-                score += 1
+                score += 2
 
         if q in line:
-            score += 3
+            score += 5
 
         if score > best_score:
             best_score = score
             best = line
 
-    if best and best_score >= 1:
+    if best and best_score >= 2:
         return best.capitalize()
 
     return None
@@ -190,7 +200,7 @@ def ai_answer(question):
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Odpowiadaj krótko i logicznie (1 zdanie)"},
+                {"role": "system", "content": "Odpowiadaj krótko (1 zdanie), tylko jeśli nie ma odpowiedzi w danych."},
                 {"role": "user", "content": question}
             ],
             max_tokens=60
@@ -208,9 +218,8 @@ def get_smart_answer(q: Question):
 
     text = q.question.lower()
 
-    # 🧠 INTENT
     intents = detect_intent(q.question)
-    intent_answer = handle_intent(intents, normalize(q.question))
+    intent_answer = handle_intent(intents)
     if intent_answer:
         return intent_answer
 
@@ -231,6 +240,10 @@ def get_smart_answer(q: Question):
 
     # 📅 REZERWACJA
     if q.data_od and q.data_do and q.numer_domku:
+
+        if q.data_od > q.data_do:
+            return "❌ Błędny zakres dat"
+
         if is_date_conflict(q.data_od, q.data_do, q.numer_domku):
             return "❌ Niestety, ale termin zajęty."
 
@@ -248,12 +261,10 @@ def get_smart_answer(q: Question):
 
         return "✅ Rezerwacja przyjęta!"
 
-    # 🔍 RAG
     rag = rag_search(q.question)
     if rag:
         return rag
 
-    # 🤖 AI
     ai = ai_answer(q.question)
     if ai:
         return ai
@@ -294,4 +305,6 @@ def availability():
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("api:app", host="0.0.0.0", port=port)
+    uvicorn.run("api:app", host="0.0.0.0", port=port)git add .
+git commit -m "AI upgrade + new knowledge base + better intent + validation"
+git push

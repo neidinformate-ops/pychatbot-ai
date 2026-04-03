@@ -1,37 +1,110 @@
-cena domek 1 300 zł za noc
-koszt domek 1 300 zł
+# =========================
+# 🏡 DOMKI - PODSTAWY
+# =========================
 
-cena domek 2 350 zł za noc
-koszt domek 2 350 zł
+domek 1 opis nowoczesny domek dla 2-4 osob taras klimatyzacja kuchnia lazienka
+domek 2 opis rodzinny domek dla 4-6 osob duzy salon kuchnia taras grill
+domek 3 opis luksusowy domek dla 2-6 osob jacuzzi prywatny taras widok na las
 
-cena domek 3 400 zł za noc
-koszt domek 3 400 zł
+ile osob domek 1 2 do 4 osob
+ile osob domek 2 4 do 6 osob
+ile osob domek 3 2 do 6 osob
 
-zameldowanie od 15:00
-check in 15:00
+wyposazenie domek 1 klimatyzacja wifi tv kuchnia lazienka
+wyposazenie domek 2 wifi tv kuchnia lazienka grill taras
+wyposazenie domek 3 jacuzzi wifi tv klimatyzacja duzy taras premium
 
-wymeldowanie do 11:00
-check out 11:00
+czy jest klimatyzacja tak domek 1 i 3 maja klimatyzacje
+czy jest jacuzzi tak domek 3 posiada jacuzzi
 
-śniadania w koszu do domku zawierają pieczywo kawa lokalne produkty
-śniadanie koszt 30 zł
-śniadanie cena 30 zł
+# =========================
+# 💰 CENY
+# =========================
 
-domki znajdują się w pobliżu zaleczanskiego parku krajobrazowego
+cena domek 1 300 zl za noc
+koszt domek 1 300 zl
+ile kosztuje domek 1 300 zl za noc
 
-w okolicy można spacerować jeździć na rowerze i odpoczywać nad rzeką wartą
-atrakcje rowery spacery rzeka natura cisza
+cena domek 2 350 zl za noc
+koszt domek 2 350 zl
+ile kosztuje domek 2 350 zl za noc
 
-trasy rowerowe oraz spływy kajakowe
+cena domek 3 400 zl za noc
+koszt domek 3 400 zl
+ile kosztuje domek 3 400 zl za noc
 
-parking jest darmowy dla gości
-parking bezpłatny
+czy cena zalezy od sezonu nie ceny sa stale przez caly rok
 
-zwierzęta są akceptowane po wcześniejszym uzgodnieniu
-psy dozwolone po uzgodnieniu
+# =========================
+# 🍳 ŚNIADANIA
+# =========================
 
-natura las rzeka cisza spokój
-
-jaki koszt sniadania 30 zl
+sniadanie koszt 30 zl za osobe
 ile kosztuje sniadanie 30 zl
-czy sniadanie jest platne 30 zl
+czy sniadanie jest platne tak 30 zl za osobe
+
+co zawiera sniadanie pieczywo kawa herbata lokalne produkty sery wedliny
+sniadanie dostarczane jest rano w koszu do domku
+
+czy sniadanie jest w cenie nie sniadanie jest dodatkowo platne
+
+# =========================
+# ⏰ GODZINY
+# =========================
+
+zameldowanie od 15 00
+check in 15 00
+
+wymeldowanie do 11 00
+check out 11 00
+
+czy mozna przyjechac wczesniej tylko po uzgodnieniu
+
+# =========================
+# 🐶 ZWIERZĘTA
+# =========================
+
+czy mozna z psem tak po uzgodnieniu
+czy zwierzeta sa dozwolone tak po uzgodnieniu
+
+# =========================
+# 🚗 PARKING
+# =========================
+
+parking darmowy dla gosci
+czy parking jest platny nie parking jest bezplatny
+
+# =========================
+# 🌲 OKOLICA
+# =========================
+
+domki znajduja sie w poblizu zaleczanskiego parku krajobrazowego
+blisko rzeka warta las cisza natura
+
+co mozna robic spacer rower kajaki odpoczynek natura
+atrakcje rowery splywy kajakowe spacery ogniska
+
+czy jest cisza i spokoj tak to miejsce do relaksu w naturze
+
+# =========================
+# 📅 REZERWACJE
+# =========================
+
+jak zarezerwowac kliknij przycisk rezerwacja i wybierz daty
+czy mozna zarezerwowac online tak przez formularz
+
+czy termin jest wolny sprawdz w kalendarzu klikajac rezerwacja
+
+# =========================
+# ❓ FAQ
+# =========================
+
+czy jest wifi tak w kazdym domku jest wifi
+czy jest telewizor tak kazdy domek ma tv
+czy jest grill tak domek 2 posiada grill
+
+czy jest kuchnia tak kazdy domek ma aneks kuchenny
+
+czy sa reczniki tak reczniki sa zapewnione
+
+czy mozna anulowac rezerwacje skontaktuj sie z obsluga
