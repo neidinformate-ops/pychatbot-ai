@@ -1,4 +1,4 @@
-print("🔥 NOWA WERSJA API PRO DZIAŁA 🔥")
+print("🔥 API BOOKING PRO DZIAŁA 🔥")
 
 import os
 import requests
@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
-# 🔥 CORS (NAPRAWA BŁĘDU)
+# 🔥 CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,10 +19,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 🔥 FAKE BAZA
+# 🔥 "BAZA"
 reservations = []
 
-# 🔗 WEBHOOK MAKE
 MAKE_WEBHOOK_URL = "https://hook.eu1.make.com/228u53xafjidh3etv4d1u3tzbpozjeaq"
 
 # 📦 MODEL
@@ -44,113 +43,92 @@ def is_date_conflict(new_from, new_to, domek):
         if r["numer_domku"] != domek:
             continue
 
-        existing_from = datetime.strptime(r["data_od"], "%Y-%m-%d")
-        existing_to = datetime.strptime(r["data_do"], "%Y-%m-%d")
+        f1 = datetime.strptime(r["data_od"], "%Y-%m-%d")
+        t1 = datetime.strptime(r["data_do"], "%Y-%m-%d")
 
-        new_from_dt = datetime.strptime(new_from, "%Y-%m-%d")
-        new_to_dt = datetime.strptime(new_to, "%Y-%m-%d")
+        f2 = datetime.strptime(new_from, "%Y-%m-%d")
+        t2 = datetime.strptime(new_to, "%Y-%m-%d")
 
-        if new_from_dt <= existing_to and new_to_dt >= existing_from:
+        if f2 <= t1 and t2 >= f1:
             return True
-
     return False
 
 
-# 🔥 FAQ (bez dat!)
-def get_smart_answer(text: str, domek: Optional[str], sniadanie: Optional[bool]):
-    text = text.lower()
+# 🧠 FAQ
+def get_smart_answer(text, domek, sniadanie):
+    t = text.lower()
 
-    if any(word in text for word in ["cena", "koszt", "ile"]):
-        if domek == "1":
-            base = "Domek 1: 300 zł / noc"
-        elif domek == "2":
-            base = "Domek 2: 350 zł / noc"
-        elif domek == "3":
-            base = "Domek 3: 400 zł / noc"
-        else:
-            base = "Ceny: 1=300zł, 2=350zł, 3=400zł"
+    if "cena" in t or "ile" in t:
+        return "Domek 1:300zł | 2:350zł | 3:400zł"
 
-        return base + (" + śniadania 🥐" if sniadanie else " (bez śniadań)")
+    if "godzin" in t:
+        return "Check-in 15:00 | Check-out 11:00"
 
-    if any(word in text for word in ["godzin", "meldunek", "wymeldowanie"]):
-        return "Zameldowanie od 15:00 🕒, wymeldowanie do 11:00."
+    if "śniad" in t:
+        return "Śniadania w koszu 🧺"
 
-    if any(word in text for word in ["śniad", "sniad"]):
-        return "Śniadania w koszu 🧺 do domku."
-
-    if any(word in text for word in ["termin", "dostęp"]):
-        return "Sprawdź kalendarz 👉 https://twojastrona.pl"
-
-    return f"[TEST MODE] {text}"
+    return f"[INFO] {text}"
 
 
 # ✅ TEST
 @app.get("/")
 def home():
-    return {"message": "API działa 🚀"}
+    return {"status": "ok"}
+
+
+# 📊 PANEL DATA
+@app.get("/reservations")
+def get_res():
+    return reservations
+
+
+# ❌ DELETE
+@app.delete("/reservation")
+def delete(index: int):
+    if index < len(reservations):
+        reservations.pop(index)
+        return {"ok": True}
+    return {"error": "not found"}
 
 
 # 🤖 GŁÓWNY ENDPOINT
 @app.post("/ask")
-async def ask_ai(q: Question):
+async def ask(q: Question):
 
-    print("\n📩 NOWE ZAPYTANIE")
-    print(q)
+    print("\n📩 NOWE:", q)
 
-    # 🔥 BLOKOWANIE TERMINÓW (TU MA BYĆ!)
+    # 🔒 REZERWACJA
     if q.data_od and q.data_do and q.numer_domku:
 
         if is_date_conflict(q.data_od, q.data_do, q.numer_domku):
-            answer = "❌ Termin zajęty — wybierz inną datę"
-            print("⛔ ZAJĘTE")
-
+            answer = "❌ Termin zajęty"
         else:
             reservations.append({
                 "numer_domku": q.numer_domku,
                 "data_od": q.data_od,
                 "data_do": q.data_do
             })
-
-            answer = "✅ Rezerwacja przyjęta!"
-            print("✅ ZAPISANO:", reservations)
+            answer = "✅ Rezerwacja przyjęta"
 
     else:
-        # 🔥 FAQ
         answer = get_smart_answer(q.question, q.numer_domku, q.sniadanie)
 
-    print("🧠 ODPOWIEDŹ:", answer)
-
     # 📦 MAKE
-    data = {
-        "question": q.question,
-        "answer": answer,
-        "imie": q.imie,
-        "nazwisko": q.nazwisko,
-        "email": q.email,
-        "telefon": q.telefon,
-        "numer_domku": q.numer_domku,
-        "sniadanie": q.sniadanie,
-        "data_od": q.data_od,
-        "data_do": q.data_do,
-        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    }
-
     try:
-        res = requests.post(MAKE_WEBHOOK_URL, json=data, timeout=10)
-        print("✅ MAKE:", res.status_code)
-    except Exception as e:
-        print("❌ MAKE ERROR:", e)
+        requests.post(MAKE_WEBHOOK_URL, json={
+            "question": q.question,
+            "answer": answer,
+            "data_od": q.data_od,
+            "data_do": q.data_do
+        }, timeout=5)
+    except:
+        pass
 
     return {"answer": answer}
 
 
-# 🚀 RAILWAY
+# 🚀 RUN
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("api:app", host="0.0.0.0", port=port)
-
-
-    @app.get("/reservations")
-    def get_reservations():
-        return reservations
