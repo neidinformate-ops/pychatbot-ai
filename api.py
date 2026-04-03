@@ -110,6 +110,17 @@ def is_date_conflict(new_from, new_to, domek):
 
     return False
 
+# 🧠 INTELIGENCJA (PRZED RAG)
+
+if "koszt domk" in text or "cena domk" in text:
+    return "Domek 1: 300 zł, Domek 2: 350 zł, Domek 3: 400 zł"
+
+if "sniadan" in text:
+    return "Śniadanie kosztuje 30 zł za osobę"
+
+if "wolne termin" in text or "dostepnosc" in text:
+    return "Kliknij 📅 Rezerwacja aby sprawdzić dostępność"
+
 # =========================
 # 🔍 RAG PRO
 # =========================
@@ -179,7 +190,14 @@ Jeśli brak dokładnej odpowiedzi:
 # 🧠 LOGIKA
 # =========================
 def get_smart_answer(q: Question):
+    text = q.question.lower()
 
+    # 🧠 INTENT (NOWE)
+    intents = detect_intent(q.question)
+    intent_answer = handle_intent(intents, normalize(q.question))
+
+    if intent_answer:
+        return intent_answer
     text = q.question.lower()
 
     # 🔴 BLOKADA
@@ -235,7 +253,16 @@ def get_smart_answer(q: Question):
 async def ask(q: Question):
 
     answer = get_smart_answer(q)
+    # 🧠 INTELIGENCJA (PRZED RAG)
 
+    if "koszt domk" in text or "cena domk" in text:
+        return "Domek 1: 300 zł, Domek 2: 350 zł, Domek 3: 400 zł"
+
+    if "sniadan" in text:
+        return "Śniadanie kosztuje 30 zł za osobę"
+
+    if "wolne termin" in text or "dostepnosc" in text:
+        return "Kliknij 📅 Rezerwacja aby sprawdzić dostępność"
     try:
         requests.post(MAKE_WEBHOOK_URL, json={
             "question": q.question,
