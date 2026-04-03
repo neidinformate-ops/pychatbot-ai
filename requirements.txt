@@ -7,3 +7,7 @@ faiss-cpu
 requests
 pydantic
 requests
+langchain
+langchain-openai
+faiss-cpu
+tiktoken

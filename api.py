@@ -1,4 +1,4 @@
-print("🔥 AI + RAG + BOOKING PRO 🔥")
+print("🔥 RAG EMBEDDING + BOOKING PRO 🔥")
 
 import os
 import requests
@@ -7,18 +7,17 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import Optional
 from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
 
-# 🔐 ENV
+# 🔥 RAG IMPORTY
+from langchain_text_splitters import CharacterTextSplitter
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_community.vectorstores import FAISS
+
+load_dotenv()
+
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# 🤖 AI (opcjonalnie)
-USE_AI = True
-
-# 📚 RAG dane lokalne
-with open("Dane.txt", "r", encoding="utf-8") as f:
-    DATA = f.read().lower()
-
-# 📦 APP
 app = FastAPI()
 
 app.add_middleware(
@@ -29,10 +28,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 💾 FAKE DB
+# 💾 "DB"
 reservations = []
 
-# 🔗 MAKE
 MAKE_WEBHOOK_URL = "https://hook.eu1.make.com/228u53xafjidh3etv4d1u3tzbpozjeaq"
 
 # 📦 MODEL
@@ -47,7 +45,35 @@ class Question(BaseModel):
     data_od: Optional[str] = None
     data_do: Optional[str] = None
 
-# 🔒 SPRAWDZENIE DAT
+# 📚 RAG SETUP
+with open("Dane.txt", "r", encoding="utf-8") as f:
+    text = f.read()
+
+splitter = CharacterTextSplitter(
+    chunk_size=300,
+    chunk_overlap=50
+)
+
+texts = splitter.split_text(text)
+
+# 🔥 EMBEDDINGS (tanie)
+embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+
+# 💾 CACHE
+if os.path.exists("faiss_index"):
+    db = FAISS.load_local(
+        "faiss_index",
+        embeddings,
+        allow_dangerous_deserialization=True
+    )
+else:
+    db = FAISS.from_texts(texts, embeddings)
+    db.save_local("faiss_index")
+
+# 🤖 AI
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.3)
+
+# 🔒 KONFLIKT
 def is_conflict(new_from, new_to, domek):
     for r in reservations:
         if r["numer_domku"] != domek:
@@ -62,65 +88,45 @@ def is_conflict(new_from, new_to, domek):
             return True
     return False
 
-# 🧠 SMART (FAQ + RAG + AI fallback)
-def smart_answer(q: Question):
-    text = q.question.lower()
 
-    # 🔥 FAQ (0 kosztów)
-    if "cena" in text:
-        return "Ceny: domek1 300zł, domek2 350zł, domek3 400zł"
+# 🧠 RAG + AI
+def rag_answer(question):
 
-    if "godzin" in text:
-        return "Zameldowanie 15:00, wymeldowanie 11:00"
+    # 🔍 znajdź kontekst
+    docs = db.similarity_search(question, k=3)
 
-    if "śniad" in text:
-        return "Śniadania w koszu 🧺 (lokalne produkty)"
+    context = "\n".join([d.page_content for d in docs])
 
-    # 📚 RAG (szukanie w pliku)
-    if text in DATA:
-        return "📚 Odpowiedź z bazy danych: " + q.question
+    # 🔥 jeśli brak sensu → nie używaj AI
+    if len(context.strip()) < 10:
+        return "Nie mam informacji w bazie."
 
-    # 🤖 AI tylko jeśli trzeba
-    if USE_AI and OPENAI_API_KEY:
-        try:
-            from openai import OpenAI
-            client = OpenAI(api_key=OPENAI_API_KEY)
+    prompt = f"""
+Odpowiadaj TYLKO na podstawie danych.
+Jeśli nie ma odpowiedzi, napisz: "Nie wiem".
 
-            res = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "Odpowiadaj krótko i konkretnie."},
-                    {"role": "user", "content": q.question}
-                ],
-                max_tokens=100  # 💸 LIMIT
-            )
+DANE:
+{context}
 
-            return res.choices[0].message.content
+PYTANIE:
+{question}
+"""
 
-        except Exception as e:
-            return f"Błąd AI: {str(e)}"
+    res = llm.invoke(prompt)
 
-    return "Nie mam odpowiedzi."
+    return res.content
 
-# 🏠 TEST
+
 @app.get("/")
 def home():
-    return {"status": "OK"}
+    return {"status": "RAG działa 🚀"}
 
-# 📅 LISTA
+
 @app.get("/reservations")
 def get_res():
     return reservations
 
-# ❌ DELETE
-@app.delete("/reservation")
-def delete(index: int):
-    if 0 <= index < len(reservations):
-        reservations.pop(index)
-        return {"status": "deleted"}
-    return {"error": "bad index"}
 
-# 🤖 GŁÓWNY ENDPOINT
 @app.post("/ask")
 async def ask(q: Question):
 
@@ -141,7 +147,7 @@ async def ask(q: Question):
         answer = "✅ Rezerwacja przyjęta"
 
     else:
-        answer = smart_answer(q)
+        answer = rag_answer(q.question)
 
     # 📤 MAKE
     data = q.dict()
@@ -156,7 +162,7 @@ async def ask(q: Question):
     return {"answer": answer}
 
 
-# 🚀 START
+# 🚀 RUN
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("api:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
