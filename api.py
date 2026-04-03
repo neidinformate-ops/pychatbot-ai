@@ -108,7 +108,7 @@ def is_date_conflict(new_from, new_to, domek):
     return False
 
 # =========================
-# 🧠 INTENT (ROZSZERZONY)
+# 🧠 INTENT
 # =========================
 def detect_intent(question):
     q = normalize(question)
@@ -159,7 +159,7 @@ def handle_intent(intents):
     return None
 
 # =========================
-# 🔍 RAG (ULEPSZONY)
+# 🔍 RAG
 # =========================
 def rag_search(question):
 
@@ -305,6 +305,4 @@ def availability():
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("api:app", host="0.0.0.0", port=port)git add .
-git commit -m "AI upgrade + new knowledge base + better intent + validation"
-git push
+    uvicorn.run("api:app", host="0.0.0.0", port=port)
