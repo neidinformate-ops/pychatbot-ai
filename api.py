@@ -196,6 +196,25 @@ async def ask(q: Question):
 def availability():
     return load_db()
 
+
+@app.delete("/reservation")
+def delete_reservation(data: dict):
+    global reservations
+
+    new_list = []
+    for r in reservations:
+        if not (
+            r["data_od"] == data["data_od"] and
+            r["data_do"] == data["data_do"] and
+            r["telefon"] == data["telefon"]
+        ):
+            new_list.append(r)
+
+    reservations = new_list
+    save_db(reservations)
+
+    return {"status": "deleted"}
+
 # RUN
 if __name__ == "__main__":
     import uvicorn
