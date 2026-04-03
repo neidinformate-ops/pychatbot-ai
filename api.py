@@ -220,3 +220,23 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("api:app", host="0.0.0.0", port=port)
+
+
+    @app.delete("/unblock")
+    def unblock(data: dict):
+        global reservations
+
+        new_list = []
+        for r in reservations:
+            if not (
+                    r["numer_domku"] == data["numer_domku"] and
+                    r["data_od"] == data["data_od"] and
+                    r["data_do"] == data["data_do"] and
+                    r.get("imie") == "ADMIN"
+            ):
+                new_list.append(r)
+
+        reservations = new_list
+        save_db(reservations)
+
+        return {"status": "unblocked"}
