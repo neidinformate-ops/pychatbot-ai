@@ -1,160 +1,203 @@
-# =========================
-# 🧠 INTENT (ULEPSZONY)
-# =========================
-def detect_intent(question):
-    q = normalize(question)
+import os
+import requests
+import json
+from datetime import datetime
+from fastapi import FastAPI
+from pydantic import BaseModel
+from typing import Optional
+from fastapi.middleware.cors import CORSMiddleware
+from openai import OpenAI
 
-    intents = {
-        "cena": ["cena", "koszt"],
-        "sniadanie": ["sniadanie"],
-        "termin": ["termin", "dostep", "wolne"],
-        "zwierzeta": ["pies", "zwierze"],
-        "parking": ["parking"],
-        "wyposazenie": ["wifi", "tv", "klimatyzacja", "jacuzzi", "kuchnia"],
-        "atrakcje": ["atrakcje", "co robic", "okolica"],
-        "ilosc_osob": ["ile osob", "ile osób", "ilosc osob"]
-    }
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-    detected = []
+app = FastAPI()
 
-    for intent, words in intents.items():
-        for w in words:
-            if w in q:
-                detected.append(intent)
-                break
-
-    return detected
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # =========================
-# 🧠 KONKRETNE ODPOWIEDZI (NOWE 🔥)
+# 💾 BAZA
 # =========================
-def handle_specific(question):
+def load_db():
+    try:
+        with open("db.json", "r") as f:
+            return json.load(f)
+    except:
+        return []
 
-    q = normalize(question)
+def save_db(data):
+    with open("db.json", "w") as f:
+        json.dump(data, f, indent=2)
 
-    # 🔥 ILE OSÓB + NUMER DOMKU
-    if "ile osob" in q or "ile osob" in q:
-
-        if "1" in q:
-            return "Domek 1 jest dla 2–4 osób"
-
-        if "2" in q:
-            return "Domek 2 jest dla 4–6 osób"
-
-        if "3" in q:
-            return "Domek 3 jest dla 2–6 osób"
-
-        return "Domki są dla 2 do 6 osób w zależności od wybranego"
-
-    # 🔥 KONKRET: CENA DOMKU
-    if "domek" in q and ("cena" in q or "koszt" in q):
-        if "1" in q:
-            return "Domek 1 kosztuje 300 zł za noc"
-        if "2" in q:
-            return "Domek 2 kosztuje 350 zł za noc"
-        if "3" in q:
-            return "Domek 3 kosztuje 400 zł za noc"
-
-    return None
-
+reservations = load_db()
 
 # =========================
-# 🧠 INTENT HANDLER
+# 🧠 SESSION
 # =========================
-def handle_intent(intents):
+sessions = {}
 
-    if "cena" in intents:
-        return "Domek 1: 300 zł, Domek 2: 350 zł, Domek 3: 400 zł"
-
-    if "sniadanie" in intents:
-        return "Śniadanie kosztuje 30 zł za osobę"
-
-    if "zwierzeta" in intents:
-        return "Tak, zwierzęta są dozwolone po uzgodnieniu"
-
-    if "parking" in intents:
-        return "Parking jest darmowy dla gości"
-
-    if "wyposazenie" in intents:
-        return "Domki mają wifi, tv i kuchnię, a domek 3 dodatkowo jacuzzi"
-
-    if "atrakcje" in intents:
-        return "W okolicy są rowery, kajaki, spacery i natura"
-
-    if "termin" in intents:
-        return "Kliknij 📅 Rezerwacja aby sprawdzić dostępność"
-
-    if "ilosc_osob" in intents:
-        return "Domki są dla 2–6 osób w zależności od wybranego"
-
-    return None
-
+def get_session(user_id="default"):
+    if user_id not in sessions:
+        sessions[user_id] = {"step": None, "data": {}}
+    return sessions[user_id]
 
 # =========================
-# 🧠 LOGIKA (POPRAWIONA KOLEJNOŚĆ 🔥)
+# 📦 MODEL
 # =========================
-def get_smart_answer(q: Question):
+class Question(BaseModel):
+    question: str
+    user_id: Optional[str] = "default"
+    imie: Optional[str] = None
+    nazwisko: Optional[str] = None
+    email: Optional[str] = None
+    telefon: Optional[str] = None
+    numer_domku: Optional[str] = None
+    data_od: Optional[str] = None
+    data_do: Optional[str] = None
+    sniadanie: Optional[bool] = None
 
+# =========================
+# 💰 CENY
+# =========================
+PRICES = {
+    "1": 300,
+    "2": 350,
+    "3": 400
+}
+
+# =========================
+# 🔥 KONFLIKT
+# =========================
+def is_date_conflict(new_from, new_to, domek):
+    for r in reservations:
+        if r["numer_domku"] != domek:
+            continue
+
+        f = datetime.strptime(r["data_od"], "%Y-%m-%d")
+        t = datetime.strptime(r["data_do"], "%Y-%m-%d")
+
+        nf = datetime.strptime(new_from, "%Y-%m-%d")
+        nt = datetime.strptime(new_to, "%Y-%m-%d")
+
+        if nf <= t and nt >= f:
+            return True
+    return False
+
+# =========================
+# 💰 LICZENIE CENY (NOWE)
+# =========================
+def calculate_price(data):
+
+    start = datetime.strptime(data["data_od"], "%Y-%m-%d")
+    end = datetime.strptime(data["data_do"], "%Y-%m-%d")
+
+    nights = (end - start).days
+    base = PRICES.get(data["numer_domku"], 0)
+
+    total = nights * base
+
+    if data.get("sniadanie"):
+        total += nights * 30
+
+    return total
+
+# =========================
+# 🤖 FLOW
+# =========================
+def booking_flow(q: Question):
+
+    session = get_session(q.user_id)
+    step = session["step"]
+    data = session["data"]
     text = q.question.lower()
 
-    # 🔥 1. KONKRET
-    specific = handle_specific(q.question)
-    if specific:
-        return specific
+    if "rezerw" in text and not step:
+        session["step"] = "date_from"
+        return "Podaj datę przyjazdu (YYYY-MM-DD)"
 
-    # 🧠 2. INTENT
-    intents = detect_intent(q.question)
-    intent_answer = handle_intent(intents)
-    if intent_answer:
-        return intent_answer
+    if step == "date_from":
+        data["data_od"] = q.question
+        session["step"] = "date_to"
+        return "Podaj datę wyjazdu"
 
-    # 🔴 BLOKADA
-    if "blokada" in text:
-        if q.data_od and q.data_do and q.numer_domku:
-            reservations.append({
-                "numer_domku": q.numer_domku,
-                "data_od": q.data_od,
-                "data_do": q.data_do,
-                "imie": "ADMIN",
-                "nazwisko": "",
-                "telefon": "",
-                "email": ""
-            })
-            save_db(reservations)
-            return "🔴 Termin zablokowany"
+    if step == "date_to":
+        data["data_do"] = q.question
+        session["step"] = "domek"
+        return "Który domek (1-3)?"
 
-    # 📅 REZERWACJA
-    if q.data_od and q.data_do and q.numer_domku:
+    if step == "domek":
+        data["numer_domku"] = q.question
+        session["step"] = "sniadanie"
+        return "Czy śniadanie? (tak/nie)"
 
-        if q.data_od > q.data_do:
-            return "❌ Błędny zakres dat"
+    if step == "sniadanie":
+        data["sniadanie"] = "tak" in text
+        session["step"] = "name"
+        return "Podaj imię"
 
-        if is_date_conflict(q.data_od, q.data_do, q.numer_domku):
-            return "❌ Niestety, ale termin zajęty."
+    if step == "name":
+        data["imie"] = q.question
+        session["step"] = "phone"
+        return "Podaj telefon"
+
+    if step == "phone":
+        data["telefon"] = q.question
+
+        if is_date_conflict(data["data_od"], data["data_do"], data["numer_domku"]):
+            session["step"] = None
+            session["data"] = {}
+            return "❌ Termin zajęty"
+
+        price = calculate_price(data)
 
         reservations.append({
-            "numer_domku": q.numer_domku,
-            "data_od": q.data_od,
-            "data_do": q.data_do,
-            "imie": q.imie,
-            "nazwisko": q.nazwisko,
-            "telefon": q.telefon,
-            "email": q.email
+            **data,
+            "nazwisko": "",
+            "email": "",
+            "price": price
         })
 
         save_db(reservations)
 
-        return "✅ Rezerwacja przyjęta!"
+        session["step"] = None
+        session["data"] = {}
 
-    # 🔍 RAG
-    rag = rag_search(q.question)
-    if rag:
-        return rag
+        return f"✅ Rezerwacja przyjęta. Cena: {price} zł"
 
-    # 🤖 AI
-    ai = ai_answer(q.question)
-    if ai:
-        return ai
+    return None
 
-    return "Mogę pomóc w rezerwacji lub odpowiedzieć na pytania 🙂"
+# =========================
+# 🧠 ODPOWIEDŹ
+# =========================
+def get_smart_answer(q: Question):
+
+    flow = booking_flow(q)
+    if flow:
+        return flow
+
+    return "Napisz 'rezerwacja' aby rozpocząć 🙂"
+
+# =========================
+# 🚀 API
+# =========================
+@app.post("/ask")
+async def ask(q: Question):
+
+    answer = get_smart_answer(q)
+
+    return {"answer": answer}
+
+@app.get("/availability")
+def availability():
+    return load_db()
+
+# RUN
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("api:app", host="0.0.0.0", port=port)
