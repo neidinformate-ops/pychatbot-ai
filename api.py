@@ -1,5 +1,6 @@
 import os
 import requests
+import json
 from datetime import datetime
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -19,25 +20,58 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 🔥 BAZA
-reservations = []
+# =========================
+# 💾 BAZA (ZAPIS DO PLIKU)
+# =========================
+def load_db():
+    try:
+        with open("db.json", "r") as f:
+            return json.load(f)
+    except:
+        return []
+
+def save_db(data):
+    with open("db.json", "w") as f:
+        json.dump(data, f, indent=2)
+
+reservations = load_db()
 
 MAKE_WEBHOOK_URL = "https://hook.eu1.make.com/228u53xafjidh3etv4d1u3tzbpozjeaq"
 
 # =========================
-# 📄 DANE TXT (RAG)
+# 📄 RAG NORMALIZACJA
 # =========================
 def normalize(text):
-    return text.lower()\
+    text = text.lower()
+
+    replacements = {
+        "śniadania": "sniadanie",
+        "śniadanie": "sniadanie",
+        "kosztu": "koszt",
+        "koszty": "koszt",
+        "cenie": "cena",
+        "ceny": "cena",
+        "domku": "domek",
+        "domki": "domek"
+    }
+
+    for k, v in replacements.items():
+        text = text.replace(k, v)
+
+    text = text\
         .replace("ą","a").replace("ę","e").replace("ś","s")\
         .replace("ć","c").replace("ł","l").replace("ó","o")\
         .replace("ż","z").replace("ź","z")
 
+    return text
+
+# =========================
+# 📄 DANE TXT
+# =========================
 def load_knowledge():
     try:
         with open("dane.txt", "r", encoding="utf-8") as f:
-            lines = [normalize(x.strip()) for x in f.readlines() if len(x.strip()) > 3]
-            return lines
+            return [normalize(x.strip()) for x in f.readlines() if len(x.strip()) > 3]
     except:
         return []
 
@@ -77,7 +111,7 @@ def is_date_conflict(new_from, new_to, domek):
     return False
 
 # =========================
-# 🔍 RAG PRO (lepsze dopasowanie)
+# 🔍 RAG PRO
 # =========================
 def rag_search(question):
 
@@ -90,12 +124,10 @@ def rag_search(question):
     for line in KNOWLEDGE:
         score = 0
 
-        # dopasowanie słów
         for w in words:
             if w in line:
                 score += 1
 
-        # bonus za frazę
         if q in line:
             score += 3
 
@@ -103,13 +135,13 @@ def rag_search(question):
             best_score = score
             best = line
 
-    if best_score >= 1:
+    if best and (best_score >= 1 or any(w in best for w in words)):
         return best.capitalize()
 
     return None
 
 # =========================
-# 🤖 AI (tylko fallback)
+# 🤖 AI LOGICZNY
 # =========================
 def ai_answer(question):
 
@@ -123,12 +155,14 @@ def ai_answer(question):
                 {
                     "role": "system",
                     "content": f"""
-Odpowiadasz krótko (1 zdanie).
-Korzystaj TYLKO z tych danych:
+Odpowiadaj logicznie i krótko (1 zdanie).
+Korzystaj tylko z danych:
 
 {chr(10).join(KNOWLEDGE)}
 
-Jeśli brak odpowiedzi → napisz "Brak informacji".
+Jeśli brak dokładnej odpowiedzi:
+- spróbuj wywnioskować
+- nie pisz "brak informacji"
 """
                 },
                 {"role": "user", "content": question}
@@ -160,6 +194,7 @@ def get_smart_answer(q: Question):
                 "telefon": "",
                 "email": ""
             })
+            save_db(reservations)
             return "🔴 Termin zablokowany"
 
     # 📅 REZERWACJA
@@ -177,9 +212,11 @@ def get_smart_answer(q: Question):
             "email": q.email
         })
 
+        save_db(reservations)
+
         return "✅ Rezerwacja przyjęta!"
 
-    # 🔍 RAG (najpierw)
+    # 🔍 RAG
     rag = rag_search(q.question)
     if rag:
         return rag
@@ -219,7 +256,7 @@ async def ask(q: Question):
 
 @app.get("/availability")
 def availability():
-    return reservations
+    return load_db()
 
 # 🚀 RUN
 if __name__ == "__main__":
