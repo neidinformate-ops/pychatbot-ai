@@ -77,12 +77,71 @@ def is_conflict(f, t, domek):
     return False
 
 # =========================
+# 🧠 INTENT
+# =========================
+def detect_intent(q):
+
+    q = q.lower()
+
+    if "cena" in q or "koszt" in q or "ile" in q:
+        return "cena"
+
+    if "pies" in q or "zwierze" in q:
+        return "zwierzeta"
+
+    if "sniadanie" in q:
+        return "sniadanie"
+
+    if "ile osob" in q:
+        return "osoby"
+
+    return None
+
+
+def handle_intent(intent):
+
+    if intent == "cena":
+        return "Domek 1: 300 zł, Domek 2: 350 zł, Domek 3: 400 zł"
+
+    if intent == "zwierzeta":
+        return "Tak, zwierzęta są dozwolone po uzgodnieniu"
+
+    if intent == "sniadanie":
+        return "Śniadanie kosztuje 30 zł za osobę"
+
+    if intent == "osoby":
+        return "Domki są dla 2 do 6 osób"
+
+    return None
+
+# =========================
+# 🔍 RAG
+# =========================
+def rag_search(q):
+    try:
+        with open("dane.txt","r",encoding="utf-8") as f:
+            data = f.readlines()
+
+        q = q.lower()
+
+        for line in data:
+            if any(word in line.lower() for word in q.split()):
+                return line.strip()
+
+    except:
+        pass
+
+    return None
+
+# =========================
 # 🤖 GŁÓWNA LOGIKA
 # =========================
 def handle(q: Question):
 
+    text = q.question.lower()
+
     # 🔴 BLOKADA
-    if "blokada" in q.question:
+    if "blokada" in text:
         reservations.append({
             "numer_domku": q.numer_domku,
             "data_od": q.data_od,
@@ -91,7 +150,7 @@ def handle(q: Question):
             "telefon": ""
         })
         save_db(reservations)
-        return "🔴 Zablokowano"
+        return "🔴 Termin zablokowany"
 
     # 📅 REZERWACJA
     if q.data_od and q.data_do and q.numer_domku:
@@ -110,7 +169,18 @@ def handle(q: Question):
         save_db(reservations)
         return "✅ Rezerwacja przyjęta"
 
-    return "Napisz rezerwacja lub wybierz daty"
+    # 🧠 INTENT
+    intent = detect_intent(q.question)
+    if intent:
+        return handle_intent(intent)
+
+    # 🔍 RAG
+    rag = rag_search(q.question)
+    if rag:
+        return rag
+
+    # 🤖 fallback
+    return "Mogę pomóc w rezerwacji lub odpowiedzieć na pytania 🙂"
 
 # =========================
 # 🚀 API
