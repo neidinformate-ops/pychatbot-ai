@@ -98,7 +98,6 @@ def normalize(text):
 # 🧠 INTENT
 # =========================
 def detect_intent(q):
-
     q = normalize(q)
 
     intents = {
@@ -125,14 +124,12 @@ def detect_intent(q):
     return None
 
 def update_memory(q: Question):
-
     sid = q.session_id or "default"
 
     if sid not in user_memory:
         user_memory[sid] = {}
 
     mem = user_memory[sid]
-
     text = normalize(q.question)
 
     if "domek 1" in text:
@@ -153,10 +150,12 @@ def update_memory(q: Question):
     if "rezerw" in text:
         mem["intent"] = "rezerwacja"
 
+    if "zmien temat" in text:
+        mem.clear()
+
     return mem
 
 def handle_intent(intent):
-
     answers = {
         "cena": "Domek 1: 300 zł, Domek 2: 350 zł, Domek 3: 400 zł za noc",
         "sniadanie": "Śniadanie w koszu kosztuje 30 zł za osobę",
@@ -173,8 +172,7 @@ def handle_intent(intent):
         "domek2": "Domek 2 kosztuje 350 zł za noc",
         "domek3": "Domek 3 kosztuje 400 zł za noc"
     }
-
-    return answers.get(intent, None)
+    return answers.get(intent)
 
 # =========================
 # 🔍 RAG
@@ -255,24 +253,8 @@ def handle(q: Question):
     text = q.question
     mem = update_memory(q)
 
-    # 🧠 KONTEKST REZERWACJI
-    if mem.get("intent") == "rezerwacja":
-
-        domek = mem.get("domek")
-        osoby = mem.get("osoby")
-        sniadanie = mem.get("sniadanie")
-
-        if domek and osoby:
-            return f"Świetnie 🙂 Domek {domek} dla {osoby} osób{' ze śniadaniem' if sniadanie else ''}. Wybierz daty w kalendarzu 📅"
-
-        if domek:
-            return f"Domek {domek} — dla ilu osób ma być?"
-
-        return "Który domek chcesz zarezerwować?"
-
     # 📅 REZERWACJA
     if q.data_od and q.data_do and q.numer_domku:
-
         if is_conflict(q.data_od, q.data_do, q.numer_domku):
             return "❌ Termin zajęty"
 
@@ -303,6 +285,20 @@ def handle(q: Question):
     intent = detect_intent(text)
     if intent:
         return handle_intent(intent)
+
+    # 🧠 FLOW REZERWACJI
+    if mem.get("intent") == "rezerwacja":
+        domek = mem.get("domek")
+        osoby = mem.get("osoby")
+        sniadanie = mem.get("sniadanie")
+
+        if domek and osoby:
+            return f"Świetnie 🙂 Domek {domek} dla {osoby} osób{' ze śniadaniem' if sniadanie else ''}. Wybierz daty 📅"
+
+        if domek:
+            return f"Domek {domek} — dla ilu osób ma być?"
+
+        return "Który domek chcesz zarezerwować?"
 
     # 🔍 RAG
     rag = rag_search(text)
