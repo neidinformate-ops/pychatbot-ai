@@ -232,6 +232,17 @@ def handle(q: Question):
         return fast
 
     # 📅 rezerwacja
+
+    import requests
+
+    WEBHOOK_URL = "https://hook.eu1.make.com/228u53xafjidh3etv4d1u3tzbpozjeaq"  # np discord / make / zapier
+
+    def send_webhook(data):
+        try:
+            requests.post(WEBHOOK_URL, json=data)
+        except Exception as e:
+            print("Webhook error:", e)
+
     if q.data_od and q.data_do and q.numer_domku:
         if is_conflict(q.data_od, q.data_do, q.numer_domku):
             return "❌ Termin zajęty"
@@ -242,9 +253,21 @@ def handle(q: Question):
             "data_do": q.data_do,
             "imie": q.imie,
             "telefon": q.telefon
+            "email": q.email
         })
 
         save_db(reservations)
+
+        send_webhook({
+            "typ": "rezerwacja",
+            "domek": q.numer_domku,
+            "od": q.data_od,
+            "do": q.data_do,
+            "imie": q.imie,
+            "telefon": q.telefon
+            "email": q.email
+        })
+
         return "✅ Rezerwacja przyjęta"
 
     # 🧠 intent
