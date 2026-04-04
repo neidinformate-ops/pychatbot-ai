@@ -99,7 +99,6 @@ def detect_intent(q):
     q = normalize(q)
 
     intents = {
-
         "cena": ["cena","koszt","ile koszt","ile za noc"],
         "sniadanie": ["sniadanie","posilek","jedzenie"],
         "zwierzeta": ["pies","zwierze","psy"],
@@ -126,7 +125,6 @@ def detect_intent(q):
 def handle_intent(intent):
 
     answers = {
-
         "cena": "Domek 1: 300 zł, Domek 2: 350 zł, Domek 3: 400 zł za noc",
         "sniadanie": "Śniadanie w koszu kosztuje 30 zł za osobę",
         "zwierzeta": "Tak, zwierzęta są dozwolone po wcześniejszym uzgodnieniu",
@@ -181,28 +179,31 @@ def rag_search(q):
     except:
         pass
 
-    def ai_answer(question):
+    return None
 
-        try:
-            from openai import OpenAI
-            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# =========================
+# 🤖 AI (NAPRAWIONE)
+# =========================
+def ai_answer(question):
 
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "Odpowiadaj krótko (1 zdanie)"},
-                    {"role": "user", "content": question}
-                ],
-                max_tokens=60
-            )
-
-            return response.choices[0].message.content.strip()
-
-        except Exception as e:
-            print("AI ERROR:", e)
+    try:
+        if not os.getenv("OPENAI_API_KEY"):
             return None
 
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Odpowiadaj krótko (1 zdanie)"},
+                {"role": "user", "content": question}
+            ],
+            max_tokens=60
+        )
 
+        return response.choices[0].message.content.strip()
+
+    except Exception as e:
+        print("AI ERROR:", e)
+        return None
 
 # =========================
 # 🤖 GŁÓWNA LOGIKA
@@ -230,7 +231,6 @@ def handle(q: Question):
 
     text = q.question
 
-    # 📅 REZERWACJA
     if q.data_od and q.data_do and q.numer_domku:
 
         if is_conflict(q.data_od, q.data_do, q.numer_domku):
@@ -247,7 +247,6 @@ def handle(q: Question):
         save_db(reservations)
         return "✅ Rezerwacja przyjęta"
 
-    # 🔴 BLOKADA
     if "blokada" in normalize(text):
         reservations.append({
             "numer_domku": q.numer_domku,
@@ -259,22 +258,18 @@ def handle(q: Question):
         save_db(reservations)
         return "🔴 Termin zablokowany"
 
-    # 🧠 INTENT
     intent = detect_intent(text)
     if intent:
         return handle_intent(intent)
 
-    # 🔍 RAG
     rag = rag_search(text)
     if rag:
         return rag
 
-    # 🤖 AI fallback
     ai = ai_answer(text)
     if ai:
         return ai
 
-    # 🧠 fallback
     return smart_fallback(text)
 
 # =========================
@@ -288,7 +283,6 @@ async def ask(q: Question):
 def availability():
     return load_db()
 
-# DELETE
 @app.delete("/reservation")
 def delete(data: dict, token: str = Header(None)):
     if not verify(token):
@@ -299,7 +293,6 @@ def delete(data: dict, token: str = Header(None)):
     save_db(reservations)
     return {"ok":True}
 
-# UNBLOCK
 @app.delete("/unblock")
 def unblock(data: dict, token: str = Header(None)):
     if not verify(token):
@@ -316,7 +309,6 @@ def unblock(data: dict, token: str = Header(None)):
     save_db(reservations)
     return {"ok":True}
 
-# RUN
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("api:app", host="0.0.0.0", port=8000)
