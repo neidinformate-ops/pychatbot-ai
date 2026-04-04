@@ -203,23 +203,7 @@ def update_memory(q: Question):
 
     return mem
 
-def handle_intent(intent):
-    answers = {
-        "cena": "Domek 1: 300 zł, Domek 2: 350 zł, Domek 3: 400 zł za noc",
-        "sniadanie": "Śniadanie w koszu kosztuje 30 zł za osobę",
-        "zwierzeta": "Tak, zwierzęta są dozwolone po wcześniejszym uzgodnieniu",
-        "godziny": "Zameldowanie od 15:00, wymeldowanie do 11:00",
-        "lokalizacja": "Domki są w spokojnej okolicy blisko rzeki Warty",
-        "rzeka": "Tak, w pobliżu znajduje się rzeka Warta",
-        "atrakcje": "Spacery, rowery, kajaki i relaks nad rzeką",
-        "rowery": "W okolicy są trasy rowerowe",
-        "kajaki": "Dostępne są spływy kajakowe",
-        "parking": "Parking dla gości jest bezpłatny",
-        "osoby": "Domki są dla 2 do 6 osób",
-        "domek1": "Domek 1 kosztuje 300 zł za noc",
-        "domek2": "Domek 2 kosztuje 350 zł za noc",
-        "domek3": "Domek 3 kosztuje 400 zł za noc"
-    }
+
     return answers.get(intent)
 
 # =========================
