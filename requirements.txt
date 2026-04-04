@@ -11,3 +11,4 @@ langchain
 langchain-openai
 faiss-cpu
 tiktoken
+openai

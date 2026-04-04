@@ -184,10 +184,13 @@ def rag_search(q):
     def ai_answer(question):
 
         try:
+            from openai import OpenAI
+            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "Odpowiadaj krótko i logicznie (1 zdanie)."},
+                    {"role": "system", "content": "Odpowiadaj krótko (1 zdanie)"},
                     {"role": "user", "content": question}
                 ],
                 max_tokens=60
@@ -195,7 +198,8 @@ def rag_search(q):
 
             return response.choices[0].message.content.strip()
 
-        except:
+        except Exception as e:
+            print("AI ERROR:", e)
             return None
 
 
