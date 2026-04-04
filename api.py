@@ -6,7 +6,9 @@ from fastapi import FastAPI, Header
 from pydantic import BaseModel
 from typing import Optional
 from fastapi.middleware.cors import CORSMiddleware
+from openai import OpenAI
 
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 app = FastAPI()
 
 app.add_middleware(
@@ -179,7 +181,24 @@ def rag_search(q):
     except:
         pass
 
-    return None
+    def ai_answer(question):
+
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "Odpowiadaj krótko i logicznie (1 zdanie)."},
+                    {"role": "user", "content": question}
+                ],
+                max_tokens=60
+            )
+
+            return response.choices[0].message.content.strip()
+
+        except:
+            return None
+
+
 
 # =========================
 # 🤖 GŁÓWNA LOGIKA
@@ -246,7 +265,12 @@ def handle(q: Question):
     if rag:
         return rag
 
-    # 🤖 fallback
+    # 🤖 AI fallback
+    ai = ai_answer(text)
+    if ai:
+        return ai
+
+    # 🧠 fallback
     return smart_fallback(text)
 
 # =========================
