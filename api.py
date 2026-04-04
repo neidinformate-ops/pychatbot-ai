@@ -95,6 +95,54 @@ def normalize(text):
     return text
 
 # =========================
+# 🚀 ULTRA RAG BOOST (NOWE)
+# =========================
+def ultra_fast_answer(q):
+    q = normalize(q)
+
+    # ceny pokoi
+    if "magnolia" in q:
+        return "Pokój Magnolia kosztuje 160 zł za noc (do 3 osób)"
+    if "konwalia" in q:
+        return "Pokój Konwalia kosztuje 130 zł za noc (2 osoby)"
+    if "lawenda" in q:
+        return "Pokój Lawenda kosztuje 240 zł za noc (3 osoby)"
+    if "roza" in q:
+        return "Pokój Róża kosztuje 110 zł za noc (2 osoby)"
+    if "piwonia" in q:
+        return "Pokój Piwonia kosztuje 130 zł za noc (2 osoby)"
+
+    # kajaki
+    if "kajak" in q:
+        return "Kajak: 90 zł jednoosobowy, 120 zł dwuosobowy"
+
+    # basen
+    if "basen" in q:
+        return "Tak, basen jest dostępny dla gości"
+
+    # grill / ognisko
+    if "grill" in q or "ognisko" in q:
+        return "Tak, dostępny grill i ognisko"
+
+    # psy
+    if "pies" in q or "zwierze" in q:
+        return "Tak, psy dozwolone (20 zł, max 2)"
+
+    # rzeka
+    if "rzeka" in q or "warta" in q:
+        return "Rzeka Warta znajduje się bardzo blisko obiektu"
+
+    # lokalizacja
+    if "gdzie" in q or "adres" in q:
+        return "Załęcze Małe 30, Pątnów"
+
+    # atrakcje
+    if "atrakcje" in q or "co mozna" in q:
+        return "Kajaki, basen, grill, ognisko, rowery i natura"
+
+    return None
+
+# =========================
 # 🧠 INTENT
 # =========================
 def detect_intent(q):
@@ -199,7 +247,7 @@ def rag_search(q):
                 best_score = score
                 best = line
 
-        if best and best_score >= 2:
+        if best and best_score >= 1:
             return best.strip()
 
     except:
@@ -252,6 +300,11 @@ def handle(q: Question):
 
     text = q.question
     mem = update_memory(q)
+
+    # 🚀 NOWE (ULTRA FAST)
+    fast = ultra_fast_answer(text)
+    if fast:
+        return fast
 
     # 📅 REZERWACJA
     if q.data_od and q.data_do and q.numer_domku:

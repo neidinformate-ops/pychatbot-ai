@@ -1,110 +1,71 @@
-# =========================
-# 🏡 DOMKI - PODSTAWY
-# =========================
+ile kosztuje magnolia 160 zl za noc 3 osoby
+cena magnolia 160 zl
+pokoj magnolia cena 160 zl
 
-domek 1 opis nowoczesny domek dla 2-4 osob taras klimatyzacja kuchnia lazienka
-domek 2 opis rodzinny domek dla 4-6 osob duzy salon kuchnia taras grill
-domek 3 opis luksusowy domek dla 2-6 osob jacuzzi prywatny taras widok na las
+ile kosztuje konwalia 130 zl za noc 2 osoby
+cena konwalia 130 zl
 
-ile osob domek 1 2 do 4 osob
-ile osob domek 2 4 do 6 osob
-ile osob domek 3 2 do 6 osob
+ile kosztuje lawenda 240 zl za noc 3 osoby
+cena lawenda 240 zl
 
-wyposazenie domek 1 klimatyzacja wifi tv kuchnia lazienka
-wyposazenie domek 2 wifi tv kuchnia lazienka grill taras
-wyposazenie domek 3 jacuzzi wifi tv klimatyzacja duzy taras premium
+ile kosztuje roza 110 zl za noc 2 osoby
+cena roza 110 zl
 
-czy jest klimatyzacja tak domek 1 i 3 maja klimatyzacje
-czy jest jacuzzi tak domek 3 posiada jacuzzi
+ile kosztuje piwonia 130 zl za noc 2 osoby
+cena piwonia 130 zl
 
-# =========================
-# 💰 CENY
-# =========================
+ile kosztuje niezapominajka 110 zl za noc 2 osoby
+cena niezapominajka 110 zl
 
-cena domek 1 300 zl za noc
-koszt domek 1 300 zl
-ile kosztuje domek 1 300 zl za noc
+ile osob moze byc w pokojach od 2 do 3 osob
+maksymalna liczba osob 3 osoby
 
-cena domek 2 350 zl za noc
-koszt domek 2 350 zl
-ile kosztuje domek 2 350 zl za noc
+czy jest basen tak basen jest dostepny dla gosci
+basen dostepny tak
 
-cena domek 3 400 zl za noc
-koszt domek 3 400 zl
-ile kosztuje domek 3 400 zl za noc
+czy mozna grill tak grill dostepny
+czy jest ognisko tak ognisko dostepne
 
-czy cena zalezy od sezonu nie ceny sa stale przez caly rok
+czy mozna z psem tak psy dozwolone 20 zl maksymalnie 2 psy
+czy zwierzeta sa dozwolone tak 20 zl za psa
 
-# =========================
-# 🍳 ŚNIADANIA
-# =========================
+czy jest parking tak parking dostepny dla gosci
+parking czy jest tak darmowy
 
-sniadanie koszt 30 zl za osobe
-ile kosztuje sniadanie 30 zl
-czy sniadanie jest platne tak 30 zl za osobe
+czy jest wifi tak wifi dostepne do podstawowego uzytku
 
-co zawiera sniadanie pieczywo kawa herbata lokalne produkty sery wedliny
-sniadanie dostarczane jest rano w koszu do domku
+gdzie sie znajdujecie zalecze male 30 patnow blisko rzeki warta
 
-czy sniadanie jest w cenie nie sniadanie jest dodatkowo platne
+czy jest blisko rzeka tak rzeka warta znajduje sie blisko obiektu
+jak daleko rzeka blisko rzeka warta kilka minut
 
-# =========================
-# ⏰ GODZINY
-# =========================
+czy sa kajaki tak wypozyczalnia kajakow na miejscu
+czy mozna splyw kajakowy tak rzeka warta
 
-zameldowanie od 15 00
-check in 15 00
+ile kosztuje kajak 90 zl jednoosobowy 120 zl dwuosobowy
+cena kajaka 90 zl 120 zl
 
-wymeldowanie do 11 00
-check out 11 00
+czy jest transport kajakow tak 2 zl za km
 
-czy mozna przyjechac wczesniej tylko po uzgodnieniu
+jakie sa trasy kajakowe 15.75 km 4h oraz 10 km 2.5h oraz 6 km 1.5h
 
-# =========================
-# 🐶 ZWIERZĘTA
-# =========================
+co mozna robic grill ognisko basen kajaki spacery rowery natura
 
-czy mozna z psem tak po uzgodnieniu
-czy zwierzeta sa dozwolone tak po uzgodnieniu
+czy sa atrakcje tak kajaki basen grill ognisko spacery
 
-# =========================
-# 🚗 PARKING
-# =========================
+jakie sa godziny zameldowania 14:00 do 19:00
+check in 14:00 19:00
 
-parking darmowy dla gosci
-czy parking jest platny nie parking jest bezplatny
+jakie sa godziny wymeldowania do 11:00
+check out do 11:00
 
-# =========================
-# 🌲 OKOLICA
-# =========================
+czy trzeba zadatek tak 25 procent ceny
+zadatek ile 25 procent
 
-domki znajduja sie w poblizu zaleczanskiego parku krajobrazowego
-blisko rzeka warta las cisza natura
+czy zadatek jest zwrotny nie zadatek nie podlega zwrotowi
 
-co mozna robic spacer rower kajaki odpoczynek natura
-atrakcje rowery splywy kajakowe spacery ogniska
+jak zaplacic przelew bankowy
 
-czy jest cisza i spokoj tak to miejsce do relaksu w naturze
+czy jest kontakt telefon 726099884 email kontakt@ustecow.pl
 
-# =========================
-# 📅 REZERWACJE
-# =========================
-
-jak zarezerwowac kliknij przycisk rezerwacja i wybierz daty
-czy mozna zarezerwowac online tak przez formularz
-
-czy termin jest wolny sprawdz w kalendarzu klikajac rezerwacja
-
-# =========================
-# ❓ FAQ
-# =========================
-
-czy jest wifi tak w kazdym domku jest wifi
-czy jest telewizor tak kazdy domek ma tv
-czy jest grill tak domek 2 posiada grill
-
-czy jest kuchnia tak kazdy domek ma aneks kuchenny
-
-czy sa reczniki tak reczniki sa zapewnione
-
-czy mozna anulowac rezerwacje skontaktuj sie z obsluga
+pokoje u stecow noclegi blisko natury cisza spokoj rzeka warta
