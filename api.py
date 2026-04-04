@@ -38,6 +38,11 @@ def save_db(data):
 reservations = load_db()
 
 # =========================
+# 🧠 MEMORY
+# =========================
+user_memory = {}
+
+# =========================
 # 🔐 AUTH
 # =========================
 tokens = set()
@@ -66,6 +71,7 @@ class Question(BaseModel):
     numer_domku: Optional[str] = None
     data_od: Optional[str] = None
     data_do: Optional[str] = None
+    session_id: Optional[str] = "default"
 
 # =========================
 # 🔥 KONFLIKT
@@ -80,15 +86,12 @@ def is_conflict(f, t, domek):
 
 def normalize(text):
     text = text.lower()
-
     replacements = {
         "ś": "s", "ą": "a", "ę": "e", "ć": "c",
         "ł": "l", "ó": "o", "ż": "z", "ź": "z"
     }
-
     for k, v in replacements.items():
         text = text.replace(k, v)
-
     return text
 
 # =========================
@@ -121,6 +124,36 @@ def detect_intent(q):
 
     return None
 
+def update_memory(q: Question):
+
+    sid = q.session_id or "default"
+
+    if sid not in user_memory:
+        user_memory[sid] = {}
+
+    mem = user_memory[sid]
+
+    text = normalize(q.question)
+
+    if "domek 1" in text:
+        mem["domek"] = "1"
+    if "domek 2" in text:
+        mem["domek"] = "2"
+    if "domek 3" in text:
+        mem["domek"] = "3"
+
+    if "2 osob" in text:
+        mem["osoby"] = 2
+    if "3 osob" in text:
+        mem["osoby"] = 3
+
+    if "sniadanie" in text:
+        mem["sniadanie"] = True
+
+    if "rezerw" in text:
+        mem["intent"] = "rezerwacja"
+
+    return mem
 
 def handle_intent(intent):
 
@@ -147,7 +180,6 @@ def handle_intent(intent):
 # 🔍 RAG
 # =========================
 def rag_search(q):
-
     try:
         with open("dane.txt","r",encoding="utf-8") as f:
             lines = f.readlines()
@@ -160,11 +192,7 @@ def rag_search(q):
 
         for line in lines:
             l = normalize(line)
-            score = 0
-
-            for w in words:
-                if w in l:
-                    score += 1
+            score = sum(1 for w in words if w in l)
 
             if q in l:
                 score += 3
@@ -182,55 +210,67 @@ def rag_search(q):
     return None
 
 # =========================
-# 🤖 AI (NAPRAWIONE)
+# 🤖 AI
 # =========================
-def ai_answer(question):
-
+def ai_answer(question, mem=None):
     try:
         if not os.getenv("OPENAI_API_KEY"):
             return None
 
+        context = f"Kontekst: {mem}" if mem else ""
+
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Odpowiadaj krótko (1 zdanie)"},
-                {"role": "user", "content": question}
+                {"role": "system", "content": "Odpowiadaj krótko i logicznie (1 zdanie)."},
+                {"role": "user", "content": context + " " + question}
             ],
             max_tokens=60
         )
 
         return response.choices[0].message.content.strip()
 
-    except Exception as e:
-        print("AI ERROR:", e)
+    except:
         return None
 
 # =========================
-# 🤖 GŁÓWNA LOGIKA
+# 🤖 LOGIKA
 # =========================
 def smart_fallback(q):
-
     q = normalize(q)
 
     if len(q) < 4:
         return "Napisz trochę więcej 🙂"
-
     if "hej" in q or "czesc" in q:
         return "Cześć 🙂 Mogę pomóc w rezerwacji lub odpowiedzieć na pytania"
-
     if "dzieki" in q:
         return "Nie ma sprawy 🙂"
-
     if "rezerw" in q:
         return "Kliknij 📅 Rezerwacja aby wybrać termin"
 
     return "Mogę pomóc w cenach, dostępności lub atrakcjach 🙂"
 
-
 def handle(q: Question):
 
     text = q.question
+    mem = update_memory(q)
 
+    # 🧠 KONTEKST REZERWACJI
+    if mem.get("intent") == "rezerwacja":
+
+        domek = mem.get("domek")
+        osoby = mem.get("osoby")
+        sniadanie = mem.get("sniadanie")
+
+        if domek and osoby:
+            return f"Świetnie 🙂 Domek {domek} dla {osoby} osób{' ze śniadaniem' if sniadanie else ''}. Wybierz daty w kalendarzu 📅"
+
+        if domek:
+            return f"Domek {domek} — dla ilu osób ma być?"
+
+        return "Który domek chcesz zarezerwować?"
+
+    # 📅 REZERWACJA
     if q.data_od and q.data_do and q.numer_domku:
 
         if is_conflict(q.data_od, q.data_do, q.numer_domku):
@@ -247,6 +287,7 @@ def handle(q: Question):
         save_db(reservations)
         return "✅ Rezerwacja przyjęta"
 
+    # 🔴 BLOKADA
     if "blokada" in normalize(text):
         reservations.append({
             "numer_domku": q.numer_domku,
@@ -258,15 +299,18 @@ def handle(q: Question):
         save_db(reservations)
         return "🔴 Termin zablokowany"
 
+    # 🧠 INTENT
     intent = detect_intent(text)
     if intent:
         return handle_intent(intent)
 
+    # 🔍 RAG
     rag = rag_search(text)
     if rag:
         return rag
 
-    ai = ai_answer(text)
+    # 🤖 AI
+    ai = ai_answer(text, mem)
     if ai:
         return ai
 
