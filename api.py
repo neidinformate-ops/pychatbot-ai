@@ -125,8 +125,8 @@ def ultra_fast_answer(q):
         return "Tak, dostępny grill i ognisko"
 
     # psy
-    if "pies" in q or "zwierze" in q:
-        return "Tak, psy dozwolone (20 zł, max 2)"
+    if "pies" in q or "zwierze" in q or "zwierzeta" in q or "kot":
+        return  "Tak 🙂 Psy i koty są dozwolone (20 zł, max 2 zwierzęta)",
 
     # rzeka
     if "rzeka" in q or "warta" in q:
@@ -151,7 +151,7 @@ def detect_intent(q):
     intents = {
         "cena": ["cena","koszt","ile koszt","ile za noc"],
         "sniadanie": ["sniadanie","posilek","jedzenie"],
-        "zwierzeta": ["pies","zwierze","psy"],
+        "zwierzeta": ["pies","zwierze","psy","kot","koty","zwierzeta"],
         "godziny": ["zameldowanie","wymeldowanie","check in","check out"],
         "lokalizacja": ["gdzie","lokalizacja","okolica"],
         "rzeka": ["rzeka","warta","nad rzeka"],
@@ -324,11 +324,26 @@ def handle(q: Question):
         return handle_intent(intent)
 
     # 🧠 FLOW REZERWACJI
+    # 🧠 FLOW REZERWACJI (NAPRAWIONE)
     if mem.get("intent") == "rezerwacja":
-        domek = mem.get("domek")
-        osoby = mem.get("osoby")
-        sniadanie = mem.get("sniadanie")
 
+        intent_now = detect_intent(text)
+
+        # 🔥 jeśli user zadaje inne pytanie → NIE blokuj rozmowy
+        if intent_now and intent_now not in ["domek1", "domek2", "domek3", "osoby"]:
+            pass
+        else:
+            domek = mem.get("domek")
+            osoby = mem.get("osoby")
+            sniadanie = mem.get("sniadanie")
+
+            if domek and osoby:
+                return f"Świetnie 🙂 Domek {domek} dla {osoby} osób{' ze śniadaniem' if sniadanie else ''}. Wybierz daty 📅"
+
+            if domek:
+                return f"Domek {domek} — dla ilu osób ma być?"
+
+            return "Który domek chcesz zarezerwować?"
         if domek and osoby:
             return f"Świetnie 🙂 Domek {domek} dla {osoby} osób{' ze śniadaniem' if sniadanie else ''}. Wybierz daty 📅"
 
