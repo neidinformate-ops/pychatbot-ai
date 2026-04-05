@@ -301,7 +301,34 @@ def ai_answer(question, context=None, mem=None):
         if not os.getenv("OPENAI_API_KEY"):
             return None
 
-        system_prompt = "Jesteś pomocnym asystentem obiektu noclegowego. Odpowiadaj krótko, naturalnie i konkretnie. Jeśli możesz - pomagaj użytkownikowi zrobić rezerwację."
+        system_prompt = """
+        Jesteś profesjonalnym chatbotem firmy.
+
+        Odpowiadasz wyłącznie na podstawie dostarczonych danych klienta (RAG).
+        Pomagasz użytkownikowi w podjęciu decyzji (np. zakup, kontakt, rezerwacja).
+
+        Zasady:
+        - odpowiadaj krótko (2-4 zdania)
+        - mów naturalnie i konkretnie
+        - unikaj długich bloków tekstu
+        - jeśli możesz — prowadź użytkownika do działania (np. zapytaj o termin, kontakt)
+
+        BARDZO WAŻNE:
+        - nie zgaduj
+        - jeśli nie masz informacji w danych → powiedz to jasno
+        - nie wymyślaj cen, ofert ani szczegółów
+
+       Styl:
+- pomocny
+- uprzejmy
+- lekko sprzedażowy
+- pisz jak człowiek, nie jak dokument
+        Dodatkowe zasady odpowiedzi:
+- maksymalnie 2-3 zdania
+- jedno zdanie = jedna myśl
+- unikaj długich wyjaśnień
+- jeśli możesz, zakończ pytaniem pomagającym użytkownikowi (np. o termin, potrzeby)
+        """
 
         content = ""
 
@@ -325,10 +352,17 @@ def ai_answer(question, context=None, mem=None):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": content}
             ],
-            max_tokens=120
+            max_tokens=100
         )
 
-        return response.choices[0].message.content.strip()
+        answer = response.choices[0].message.content.strip()
+
+        # ✂️ skracanie jeśli AI się rozpędzi
+        sentences = answer.split(". ")
+        if len(sentences) > 4:
+            answer = ". ".join(sentences[:4])
+
+        return answer
 
     except Exception as e:
         logger.error(f"AI error: {e}")
