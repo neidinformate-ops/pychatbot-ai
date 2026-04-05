@@ -1,16 +1,20 @@
 import os
 import json
 from datetime import datetime
-from fastapi import FastAPI, Header
-from pydantic import BaseModel, EmailStr
-from typing import Optional
+import logging
+import requests
+import time
+
+from fastapi import FastAPI, Header, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, EmailStr, validator
+from typing import Optional
+
 from openai import OpenAI
 import faiss
 import numpy as np
-import logging
+
 from auth import create_user, verify_password, create_token, get_user, get_current_user
-from fastapi import Depends, HTTPException
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 app = FastAPI()
@@ -21,14 +25,37 @@ logger = logging.getLogger("webhook")
 # =========================
 # 🧠 RAG (FAISS)
 # =========================
-RAG_DATA = []
-RAG_INDEX = None
+RAG_STORE = {}
+def load_rag_for_client(client_id):
+    global RAG_STORE
 
-def load_rag():
-    global RAG_DATA, RAG_INDEX
+    if client_id in RAG_STORE:
+        return  # ✅ cache w RAM
 
     try:
-        with open("Dane.txt", "r", encoding="utf-8") as f:
+        index_file = f"rag_{client_id}.index"
+        data_file = f"rag_{client_id}.json"
+        txt_file = f"Dane_{client_id}.txt"
+
+        # 🔁 load z dysku (FAST)
+        if os.path.exists(index_file) and os.path.exists(data_file):
+            index = faiss.read_index(index_file)
+
+            with open(data_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            RAG_STORE[client_id] = {
+                "index": index,
+                "data": data
+            }
+            logger.info(f"RAG loaded from disk: {client_id}")
+            return
+
+        # 📄 fallback → build (TYLKO RAZ)
+        if not os.path.exists(txt_file):
+            txt_file = "Dane.txt"
+
+        with open(txt_file, "r", encoding="utf-8") as f:
             chunks = [c.strip() for c in f.read().split("\n") if c.strip()]
 
         embeddings = []
@@ -44,23 +71,169 @@ def load_rag():
 
         dim = len(embeddings[0])
         index = faiss.IndexFlatL2(dim)
+        index.add(np.array(embeddings).astype("float32"))
 
+        RAG_STORE[client_id] = {
+            "index": index,
+            "data": chunks
+        }
+
+        # 💾 zapis
+        faiss.write_index(index, index_file)
+
+        with open(data_file, "w", encoding="utf-8") as f:
+            json.dump(chunks, f, ensure_ascii=False, indent=2)
+
+        logger.info(f"RAG built: {client_id}")
+
+    except Exception as e:
+        logger.error(f"RAG error ({client_id}): {e}")
+RAG_INDEX_FILE = "rag.index"
+RAG_DATA_FILE = "rag_data.json"
+
+
+
+            # 📄 fallback
+            if not os.path.exists(txt_file):
+                txt_file = "Dane.txt"
+
+            with open(txt_file, "r", encoding="utf-8") as f:
+                chunks = [c.strip() for c in f.read().split("\n") if c.strip()]
+
+            embeddings = []
+            for c in chunks:
+                emb = client.embeddings.create(
+                    model="text-embedding-3-small",
+                    input=c
+                )
+                embeddings.append(emb.data[0].embedding)
+
+            if not embeddings:
+                return
+
+            dim = len(embeddings[0])
+            index = faiss.IndexFlatL2(dim)
+            index.add(np.array(embeddings).astype("float32"))
+
+            RAG_STORE[client_id] = {
+                "index": index,
+                "data": chunks
+            }
+
+            # 💾 zapis
+            faiss.write_index(index, index_file)
+
+            with open(data_file, "w", encoding="utf-8") as f:
+                json.dump(chunks, f, ensure_ascii=False, indent=2)
+
+        except Exception as e:
+            logger.error(f"RAG client load error: {e}")
+    try:
+        # 🔁 próbuj wczytać cache
+        if os.path.exists(RAG_INDEX_FILE) and os.path.exists(RAG_DATA_FILE):
+            RAG_INDEX = faiss.read_index(RAG_INDEX_FILE)
+
+            with open(RAG_DATA_FILE, "r", encoding="utf-8") as f:
+                RAG_DATA = json.load(f)
+
+            print("RAG loaded from cache:", len(RAG_DATA))
+            return
+
+        # 📄 fallback → buduj index
+        file_name = "Dane.txt"
+
+        with open(file_name, "r", encoding="utf-8") as f:
+            chunks = [c.strip() for c in f.read().split("\n") if c.strip()]
+
+        embeddings = []
+        for c in chunks:
+            emb = client.embeddings.create(
+                model="text-embedding-3-small",
+                input=c
+            )
+            embeddings.append(emb.data[0].embedding)
+
+        if not embeddings:
+            return
+
+        dim = len(embeddings[0])
+        index = faiss.IndexFlatL2(dim)
         index.add(np.array(embeddings).astype("float32"))
 
         RAG_DATA = chunks
         RAG_INDEX = index
 
+        # 💾 zapis cache
+        faiss.write_index(index, RAG_INDEX_FILE)
+
+        with open(RAG_DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(chunks, f, ensure_ascii=False, indent=2)
+
+        print("RAG built and saved:", len(RAG_DATA))
 
     except Exception as e:
+        print("RAG load error:", e)
 
-        print("Embedding error:", e)
-
+def search_rag(query, client_id, k=3, threshold=0.8):
+    if client_id not in RAG_STORE:
         return []
 
-def search_rag(query, k=3, threshold=0.8):
-    if not RAG_INDEX:
+    index = RAG_STORE[client_id]["index"]
+    data = RAG_STORE[client_id]["data"]
+
+    try:
+        emb = client.embeddings.create(
+            model="text-embedding-3-small",
+            input=query
+        )
+    except Exception as e:
+        logger.error(f"Embedding error: {e}")
         return []
 
+    q_vec = np.array([emb.data[0].embedding]).astype("float32")
+
+    D, I = index.search(q_vec, k)
+
+    results = []
+    for dist, idx in zip(D[0], I[0]):
+        if idx < len(data) and dist < threshold:
+            results.append(data[idx])
+
+                            return results
+
+            # 📄 fallback
+            if not os.path.exists(txt_file):
+                txt_file = "Dane.txt"
+
+            with open(txt_file, "r", encoding="utf-8") as f:
+                chunks = [c.strip() for c in f.read().split("\n") if c.strip()]
+
+            embeddings = []
+            for c in chunks:
+                emb = client.embeddings.create(
+                    model="text-embedding-3-small",
+                    input=c
+                )
+                embeddings.append(emb.data[0].embedding)
+
+            if not embeddings:
+                return
+
+            dim = len(embeddings[0])
+            index = faiss.IndexFlatL2(dim)
+            index.add(np.array(embeddings).astype("float32"))
+
+            RAG_DATA = chunks
+            RAG_INDEX = index
+
+            # 💾 zapis
+            faiss.write_index(index, index_file)
+
+            with open(data_file, "w", encoding="utf-8") as f:
+                json.dump(chunks, f, ensure_ascii=False, indent=2)
+
+        except Exception as e:
+            logger.error(f"RAG client load error: {e}")
     try:
         emb = client.embeddings.create(
             model="text-embedding-3-small",
@@ -69,19 +242,15 @@ def search_rag(query, k=3, threshold=0.8):
     except Exception as e:
         print("Embedding error:", e)
         return []
-    )
 
     q_vec = np.array([emb.data[0].embedding]).astype("float32")
-    D, I = RAG_INDEX.search(q_vec, k)
+D, I = index.search(q_vec, k)
 
     results = []
     for dist, idx in zip(D[0], I[0]):
-        if idx < len(RAG_DATA) and dist < threshold:
-            results.append(RAG_DATA[idx])
-
-    return results
-
-load_rag()
+        if idx < len(data) and dist < threshold:
+            results.append(data[idx])
+              return results
 
 app.add_middleware(
     CORSMiddleware,
@@ -98,30 +267,37 @@ app.add_middleware(
 def load_db():
     try:
         with open("db.json", "r") as f:
-            return json.load(f)
+            data = json.load(f)
+            if isinstance(data, dict):
+                return data
+            return {}  # migracja ze starego formatu
     except:
-        return []
+        return {}
 
 def save_db(data):
     with open("db.json", "w") as f:
         json.dump(data, f, indent=2)
 
-reservations = load_db()
+def get_user_reservations(client_id):
+    data = load_db()
+    return data.get(client_id, [])
 
 # =========================
 # 🧠 MEMORY
 # =========================
-user_memory = {}
 class MemoryStore:
+    def __init__(self):
+        self.store = {}
+
     def get(self, key: str):
-        return user_memory.get(key)
+        return self.store.get(key)
 
     def set(self, key: str, value: dict):
-        user_memory[key] = value
+        self.store[key] = value
 
     def clear(self, key: str):
-        if key in user_memory:
-            del user_memory[key]
+        if key in self.store:
+            del self.store[key]
 
 
 class MemoryService:
@@ -137,13 +313,20 @@ class MemoryService:
         self.store.set(key, current)
         return current
 
+    def set(self, key: str, value: dict):
+        self.store.set(key, value)
+
     def clear(self, key: str):
-        def set(self, key: str, value: dict):
-            self.store.set(key, value)
         self.store.clear(key)
 
 
 memory_service = MemoryService(MemoryStore())
+# =========================
+# 🚦 RATE LIMIT
+# =========================
+rate_limit_store = {}
+RATE_LIMIT = 10  # requestów
+RATE_WINDOW = 10  # sekund
 # =========================
 # 🔐 AUTH (JWT - auth.py)
 # =========================
@@ -155,16 +338,21 @@ class LoginData(BaseModel):
 
 
 class RegisterData(BaseModel):
+    class ClientSetupData(BaseModel):
+        text: str
     email: str
     password: str
 
 @app.post("/login")
 def login(data: LoginData):
+    logger.info(f"Login attempt: {data.email}")
     user = get_user(data.email)
 
     if not user or not verify_password(data.password, user["password"]):
+        logger.warning(f"Login failed: {data.email}")
         raise HTTPException(status_code=401, detail="invalid_credentials")
 
+    logger.info(f"Login success: {data.email}")
     token = create_token(user["id"])
     return {"token": token}
 
@@ -175,7 +363,42 @@ def register(data: RegisterData):
         return {"ok": True, "user": user["email"]}
     except ValueError:
         raise HTTPException(status_code=400, detail="user_exists")
+def get_client_id(user):
+    return user["id"]  # email jako client_id
+@app.post("/client/setup")
+def client_setup(data: ClientSetupData, user=Depends(get_current_user)):
+    client_id = get_client_id(user)
 
+    file_name = f"Dane_{client_id}.txt"
+
+    try:
+        # 💾 zapis danych klienta
+        with open(file_name, "w", encoding="utf-8") as f:
+            f.write(data.text.strip())
+
+        logger.info(f"Client data saved: {client_id}")
+
+        # 🔥 reset RAG cache (RAM)
+        if client_id in RAG_STORE:
+            del RAG_STORE[client_id]
+
+        # 🧹 usuń stare pliki indexu (opcjonalnie, ale ważne)
+        index_file = f"rag_{client_id}.index"
+        data_file = f"rag_{client_id}.json"
+
+        if os.path.exists(index_file):
+            os.remove(index_file)
+
+        if os.path.exists(data_file):
+            os.remove(data_file)
+
+        logger.info(f"RAG reset for client: {client_id}")
+
+        return {"ok": True, "message": "Dane zapisane i RAG zresetowany"}
+
+    except Exception as e:
+        logger.error(f"Client setup error: {e}")
+        raise HTTPException(status_code=500, detail="setup_failed")
 # =========================
 # 📦 MODEL
 # =========================
@@ -190,17 +413,60 @@ class Question(BaseModel):
     data_do: Optional[str] = None
     session_id: Optional[str] = "default"
 
+    @validator("text")
+    def validate_length(cls, v):
+        if len(v) > 50000:
+            raise ValueError("tekst za długi")
+        return v
+    @validator("telefon")
+    def validate_phone(cls, v):
+        if v and len(v) < 7:
+            raise ValueError("telefon za krótki")
+        return v
+
+    @validator("data_do")
+    def validate_dates(cls, v, values):
+        data_od = values.get("data_od")
+        if v and data_od:
+            try:
+                d1 = datetime.fromisoformat(data_od)
+                d2 = datetime.fromisoformat(v)
+                if d1 >= d2:
+                    raise ValueError("data_od musi być wcześniejsza niż data_do")
+            except Exception:
+                raise ValueError("niepoprawny format daty")
+        return v
 # =========================
 # 🔥 KONFLIKT
 # =========================
-def is_conflict(f, t, domek):
-    for r in reservations:
+def is_conflict(f, t, domek, client_id=None):
+    data = load_db()
+    user_reservations = data.get(client_id, [])
+
+    for r in user_reservations:
+        # client_id już jest filtrowany na poziomie DB (data.get(client_id))
         if r["numer_domku"] != domek:
             continue
         if f <= r["data_do"] and t >= r["data_od"]:
             return True
     return False
+def check_rate_limit(session_id: str):
+    now = time.time()
 
+    if session_id not in rate_limit_store:
+        rate_limit_store[session_id] = []
+
+    # usuń stare requesty
+    rate_limit_store[session_id] = [
+        t for t in rate_limit_store[session_id]
+        if now - t < RATE_WINDOW
+    ]
+
+    if len(rate_limit_store[session_id]) >= RATE_LIMIT:
+        return False
+
+    rate_limit_store[session_id].append(now)
+    return True
 def normalize(text):
     text = text.lower()
     replacements = {
@@ -279,13 +545,11 @@ def handle_intent(intent):
 # =========================
 # 🧠 MEMORY UPDATE
 # =========================
-def update_memory(q: Question):
+def update_memory(q: Question, client_id: str):
     sid = q.session_id or "default"
-    key = sid
+    key = f"{client_id}:{sid}"
 
-    mem = memory_service.get_memory(sid) = {}
-
-    mem = user_memory[sid]
+    mem = memory_service.get_memory(key)
     text = normalize(q.question)
 
     if "domek 1" in text:
@@ -307,10 +571,10 @@ def update_memory(q: Question):
         mem["intent"] = "rezerwacja"
 
     if "zmien temat" in text:
-        memory_service.clear(sid)
+        memory_service.clear(key)
         return {}
 
-    memory_service.set(sid, mem)
+    memory_service.set(key, mem)
     return mem
 
 # =========================
@@ -340,12 +604,18 @@ def ai_answer(question, mem=None):
 # =========================
 # 🤖 LOGIKA GŁÓWNA
 # =========================
-import requests
 
-def handle(q: Question):
+def handle(q: Question, user=None):
+    logger.info(f"/ask request: session={q.session_id} question={q.question}")
+
+    # 🚦 rate limit
+    if not check_rate_limit(q.session_id):
+        logger.warning(f"Rate limit exceeded: session={q.session_id}")
+        return "⛔ Za dużo zapytań, spróbuj za chwilę"
 
     text = q.question
-    mem = update_memory(q)
+    client_id = get_client_id(user) if user else "default"
+    mem = update_memory(q, client_id)
 
     # ⚡ szybkie odpowiedzi
     fast = ultra_fast_answer(text)
@@ -354,9 +624,6 @@ def handle(q: Question):
 
     # 📅 rezerwacja
 
-    import requests
-    import time
-    import logging
 
     WEBHOOK_URL = "https://hook.eu1.make.com/228u53xafjidh3etv4d1u3tzbpozjeaq"  # np discord / make / zapier
 
@@ -376,6 +643,7 @@ def handle(q: Question):
                 )
 
                 if response.status_code < 300:
+                    logger.info("Webhook success")
                     return True
 
                 logger.warning(f"Webhook failed (status {response.status_code}) attempt {attempt + 1}")
@@ -391,11 +659,22 @@ def handle(q: Question):
         logger.error("Webhook failed after retries")
         return False
 
-    if q.data_od and q.data_do and q.numer_domku:
-        if is_conflict(q.data_od, q.data_do, q.numer_domku):
+    if q.data_od and q.data_do:
+        logger.info(f"Reservation attempt: domek={q.numer_domku}, od={q.data_od}, do={q.data_do}")
+        if not q.numer_domku:
+            return "❌ Wybierz numer domku"
+        client_id = get_client_id(user) if user else "default"
+
+        if is_conflict(q.data_od, q.data_do, q.numer_domku, client_id):
+            logger.warning(f"Reservation conflict: domek={q.numer_domku}, od={q.data_od}, do={q.data_do}")
             return "❌ Termin zajęty"
 
-        reservations.append({
+        client_id = get_client_id(user) if user else "default"
+
+        data = load_db()
+        user_reservations = data.get(client_id, [])
+
+        user_reservations.append({
             "numer_domku": q.numer_domku,
             "data_od": q.data_od,
             "data_do": q.data_do,
@@ -404,7 +683,9 @@ def handle(q: Question):
             "email": q.email
         })
 
-        save_db(reservations)
+        data[client_id] = user_reservations
+        save_db(data)
+        logger.info(f"Reservation saved: domek={q.numer_domku}, telefon={q.telefon}")
 
         send_webhook({
             "type": "reservation",
@@ -445,14 +726,26 @@ def handle(q: Question):
         return "Który domek chcesz zarezerwować?"
 
     # 🧠 RAG
-    rag_results = search_rag(text)
+    client_id = get_client_id(user) if user else "default"
+    load_rag_for_client(client_id)
+
+    rag_results = search_rag(text, client_id)
 
     if rag_results:
         context = " ".join(rag_results)
 
         rag_prompt = f"""
-        Odpowiedz WYŁĄCZNIE na podstawie poniższych danych.
-        Jeśli nie ma odpowiedzi w danych → napisz: "brak informacji".
+        Jesteś pomocnym asystentem obsługi obiektu noclegowego.
+
+        Odpowiadaj naturalnie, krótko i konkretnie.
+
+        Wykorzystaj poniższe dane jako główne źródło informacji, ale:
+        - jeśli dane są niepełne, spróbuj odpowiedzieć częściowo
+        - nie używaj sformułowania "brak informacji"
+        - jeśli czegoś nie ma w danych, możesz delikatnie zasugerować kontakt lub doprecyzowanie
+
+        KONTEKST UŻYTKOWNIKA:
+        {mem}
 
         DANE:
         {context}
@@ -468,6 +761,7 @@ def handle(q: Question):
     # 🤖 AI fallback
     ai = ai_answer(text, mem)
     if ai:
+        logger.info("AI fallback used")
         return ai
 
     return "Mogę pomóc w rezerwacji lub odpowiedzieć na pytania 🙂"
@@ -476,32 +770,49 @@ def handle(q: Question):
 # 🚀 API
 # =========================
 @app.post("/ask")
-async def ask(q: Question):
-    return {"answer": handle(q)}
+async def ask(q: Question, user=Depends(get_current_user)):
+    return {"answer": handle(q, user)}
 
 @app.get("/availability")
-def availability():
-    return load_db()
+def availability(user=Depends(get_current_user)):
+    client_id = get_client_id(user) if user else "default"
+    return get_user_reservations(client_id)
 
 @app.delete("/reservation")
 def delete(data: dict, user=Depends(get_current_user)):
-    global reservations
-    reservations = [r for r in reservations if r.get("telefon") != data.get("telefon")]
-    save_db(reservations)
-    return {"ok":True}
+    client_id = get_client_id(user) if user else "default"
 
+    db = load_db()
+    user_reservations = db.get(client_id, [])
+
+    user_reservations = [
+        r for r in user_reservations
+        if r.get("telefon") != data.get("telefon")
+    ]
+
+    db[client_id] = user_reservations
+    save_db(db)
+
+    return {"ok": True}
 @app.delete("/unblock")
 def unblock(data: dict, user=Depends(get_current_user)):
-    global reservations
-    reservations = [
-        r for r in reservations
+    client_id = get_client_id(user) if user else "default"
+
+    db = load_db()
+    user_reservations = db.get(client_id, [])
+
+    user_reservations = [
+        r for r in user_reservations
         if not (
-                r.get("numer_domku") == data.get("numer_domku") and
-                r.get("data_od") == data.get("data_od")
+            r.get("numer_domku") == data.get("numer_domku") and
+            r.get("data_od") == data.get("data_od")
         )
     ]
-    save_db(reservations)
-    return {"ok":True}
+
+    db[client_id] = user_reservations
+    save_db(db)
+
+    return {"ok": True}
 
 if __name__ == "__main__":
     import uvicorn
