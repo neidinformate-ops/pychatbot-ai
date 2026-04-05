@@ -18,7 +18,7 @@ from auth import create_user, verify_password, create_token, get_user, get_curre
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 app = FastAPI()
-allow_origins=const API = "https://web-production-1de94.up.railway.app"
+allow_origins=["*"],
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
