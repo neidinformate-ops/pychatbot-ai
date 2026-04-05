@@ -1,0 +1,17 @@
+[
+  {
+    "id": "test@test.pl",
+    "email": "test@test.pl",
+    "password": "$2b$12$AE.5mOMbNWfncyDd5MyUsOHiNOMZFzvL87brLJyKJTWsw7R3vsbLy"
+  },
+  {
+    "id": "testt@test.pl",
+    "email": "testt@test.pl",
+    "password": "$2b$12$gA/bg9V0a4SBzJj7GZCMcOhNKCI8sXno/dTFUqa5usjlrCSxUQt7G"
+  },
+  {
+    "id": "bot@test.pl",
+    "email": "bot@test.pl",
+    "password": "$2b$12$8xX6mCBMwjOUPNiGK2NCJeTZqoWGNMptgPKR47R4F9XomezCCbWke"
+  }
+]

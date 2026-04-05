@@ -81,11 +81,18 @@ def create_user(email: str, password: str):
 
 
 # =========================
-# 🛡️ MIDDLEWARE
+# 🛡️ MIDDLEWARE (POPRAWIONE)
 # =========================
-def get_current_user(token: str = Header(None)):
-    if not token:
+def get_current_user(authorization: str = Header(None)):
+    if not authorization:
         raise HTTPException(status_code=401, detail="missing_token")
+
+    try:
+        scheme, token = authorization.split()
+        if scheme.lower() != "bearer":
+            raise HTTPException(status_code=401, detail="invalid_scheme")
+    except:
+        raise HTTPException(status_code=401, detail="invalid_header")
 
     data = decode_token(token)
     if not data:
