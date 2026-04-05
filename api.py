@@ -296,7 +296,7 @@ def update_memory(q, client_id):
     memory_service.set(key, mem)
     return mem
 
-def ai_answer(question, context=None, mem=None):
+def ai_answer(question, context=None, mem=None, force_context=False):
     try:
         if not os.getenv("OPENAI_API_KEY"):
             return None
@@ -304,30 +304,21 @@ def ai_answer(question, context=None, mem=None):
         system_prompt = """
         Jesteś profesjonalnym chatbotem firmy.
 
-        Odpowiadasz wyłącznie na podstawie dostarczonych danych klienta (RAG).
-        Pomagasz użytkownikowi w podjęciu decyzji (np. zakup, kontakt, rezerwacja).
+        ODPOWIADAJ WYŁĄCZNIE na podstawie dostarczonych danych.
 
         Zasady:
-        - odpowiadaj krótko (2-4 zdania)
-        - mów naturalnie i konkretnie
-        - unikaj długich bloków tekstu
-        - jeśli możesz — prowadź użytkownika do działania (np. zapytaj o termin, kontakt)
+        - jeśli dane istnieją → MUSISZ ich użyć
+        - NIE twórz ogólnych odpowiedzi
+        - NIE zgaduj
+        - NIE dodawaj informacji spoza danych
 
-        BARDZO WAŻNE:
-        - nie zgaduj
-        - jeśli nie masz informacji w danych → powiedz to jasno
-        - nie wymyślaj cen, ofert ani szczegółów
+        Jeśli nie ma danych:
+        - powiedz jasno że nie masz informacji
 
-       Styl:
-- pomocny
-- uprzejmy
-- lekko sprzedażowy
-- pisz jak człowiek, nie jak dokument
-        Dodatkowe zasady odpowiedzi:
-- maksymalnie 2-3 zdania
-- jedno zdanie = jedna myśl
-- unikaj długich wyjaśnień
-- jeśli możesz, zakończ pytaniem pomagającym użytkownikowi (np. o termin, potrzeby)
+        Styl:
+        - krótko (2-4 zdania)
+        - naturalnie
+        - konkretnie
         """
 
         content = ""
@@ -403,10 +394,19 @@ def handle(q: Question, user=None):
     load_rag_for_client(client_id)
     rag = search_rag(q.question, client_id)
 
+    # 🐛 DEBUG RAG
+    logger.info(f"RAG results: {rag}")
+
+    if rag:
+        logger.info(f"RAG context: {' '.join(rag)}")
+    else:
+        logger.warning("RAG EMPTY")
+
     if rag:
         context = " ".join(rag)
 
-        ai = ai_answer(q.question, context=context, mem=mem)
+        # 🔒 wymuszenie użycia danych
+        ai = ai_answer(q.question, context=context, mem=mem, force_context=True)
         if ai:
             history = mem.get("history", [])
             history.append({"role": "assistant", "content": ai})
