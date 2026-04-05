@@ -1,15 +1,87 @@
 import os
 import json
-import secrets
 from datetime import datetime
 from fastapi import FastAPI, Header
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from typing import Optional
 from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
+import faiss
+import numpy as np
+import logging
+from auth import create_user, verify_password, create_token, get_user, get_current_user
+from fastapi import Depends, HTTPException
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 app = FastAPI()
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("webhook")
+
+# =========================
+# 🧠 RAG (FAISS)
+# =========================
+RAG_DATA = []
+RAG_INDEX = None
+
+def load_rag():
+    global RAG_DATA, RAG_INDEX
+
+    try:
+        with open("Dane.txt", "r", encoding="utf-8") as f:
+            chunks = [c.strip() for c in f.read().split("\n") if c.strip()]
+
+        embeddings = []
+        for c in chunks:
+            emb = client.embeddings.create(
+                model="text-embedding-3-small",
+                input=c
+            )
+            embeddings.append(emb.data[0].embedding)
+
+        if not embeddings:
+            return
+
+        dim = len(embeddings[0])
+        index = faiss.IndexFlatL2(dim)
+
+        index.add(np.array(embeddings).astype("float32"))
+
+        RAG_DATA = chunks
+        RAG_INDEX = index
+
+
+    except Exception as e:
+
+        print("Embedding error:", e)
+
+        return []
+
+def search_rag(query, k=3, threshold=0.8):
+    if not RAG_INDEX:
+        return []
+
+    try:
+        emb = client.embeddings.create(
+            model="text-embedding-3-small",
+            input=query
+        )
+    except Exception as e:
+        print("Embedding error:", e)
+        return []
+    )
+
+    q_vec = np.array([emb.data[0].embedding]).astype("float32")
+    D, I = RAG_INDEX.search(q_vec, k)
+
+    results = []
+    for dist, idx in zip(D[0], I[0]):
+        if idx < len(RAG_DATA) and dist < threshold:
+            results.append(RAG_DATA[idx])
+
+    return results
+
+load_rag()
 
 app.add_middleware(
     CORSMiddleware,
@@ -19,7 +91,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 
 # =========================
 # 💾 DB
@@ -41,25 +112,69 @@ reservations = load_db()
 # 🧠 MEMORY
 # =========================
 user_memory = {}
+class MemoryStore:
+    def get(self, key: str):
+        return user_memory.get(key)
 
+    def set(self, key: str, value: dict):
+        user_memory[key] = value
+
+    def clear(self, key: str):
+        if key in user_memory:
+            del user_memory[key]
+
+
+class MemoryService:
+    def __init__(self, store: MemoryStore):
+        self.store = store
+
+    def get_memory(self, key: str):
+        return self.store.get(key) or {}
+
+    def update_memory(self, key: str, patch: dict):
+        current = self.get_memory(key)
+        current.update(patch)
+        self.store.set(key, current)
+        return current
+
+    def clear(self, key: str):
+        def set(self, key: str, value: dict):
+            self.store.set(key, value)
+        self.store.clear(key)
+
+
+memory_service = MemoryService(MemoryStore())
 # =========================
-# 🔐 AUTH
+# 🔐 AUTH (JWT - auth.py)
 # =========================
-tokens = set()
+
 
 class LoginData(BaseModel):
+    email: str
+    password: str
+
+
+class RegisterData(BaseModel):
+    email: str
     password: str
 
 @app.post("/login")
 def login(data: LoginData):
-    if data.password == ADMIN_PASSWORD:
-        token = secrets.token_hex(16)
-        tokens.add(token)
-        return {"token": token}
-    return {"error": "unauthorized"}
+    user = get_user(data.email)
 
-def verify(token):
-    return token in tokens
+    if not user or not verify_password(data.password, user["password"]):
+        raise HTTPException(status_code=401, detail="invalid_credentials")
+
+    token = create_token(user["id"])
+    return {"token": token}
+
+@app.post("/register")
+def register(data: RegisterData):
+    try:
+        user = create_user(data.email, data.password)
+        return {"ok": True, "user": user["email"]}
+    except ValueError:
+        raise HTTPException(status_code=400, detail="user_exists")
 
 # =========================
 # 📦 MODEL
@@ -67,7 +182,9 @@ def verify(token):
 class Question(BaseModel):
     question: str
     imie: Optional[str] = None
+    nazwisko: Optional[str] = None
     telefon: Optional[str] = None
+    email: Optional[EmailStr] = None
     numer_domku: Optional[str] = None
     data_od: Optional[str] = None
     data_do: Optional[str] = None
@@ -164,9 +281,9 @@ def handle_intent(intent):
 # =========================
 def update_memory(q: Question):
     sid = q.session_id or "default"
+    key = sid
 
-    if sid not in user_memory:
-        user_memory[sid] = {}
+    mem = memory_service.get_memory(sid) = {}
 
     mem = user_memory[sid]
     text = normalize(q.question)
@@ -190,8 +307,10 @@ def update_memory(q: Question):
         mem["intent"] = "rezerwacja"
 
     if "zmien temat" in text:
-        mem.clear()
+        memory_service.clear(sid)
+        return {}
 
+    memory_service.set(sid, mem)
     return mem
 
 # =========================
@@ -221,6 +340,8 @@ def ai_answer(question, mem=None):
 # =========================
 # 🤖 LOGIKA GŁÓWNA
 # =========================
+import requests
+
 def handle(q: Question):
 
     text = q.question
@@ -234,14 +355,41 @@ def handle(q: Question):
     # 📅 rezerwacja
 
     import requests
+    import time
+    import logging
 
     WEBHOOK_URL = "https://hook.eu1.make.com/228u53xafjidh3etv4d1u3tzbpozjeaq"  # np discord / make / zapier
 
-    def send_webhook(data):
-        try:
-            requests.post(WEBHOOK_URL, json=data)
-        except Exception as e:
-            print("Webhook error:", e)
+    def send_webhook(data, retries=3, timeout=5):
+        payload = {
+            "event": "reservation_created",
+            "timestamp": datetime.utcnow().isoformat(),
+            "data": data
+        }
+
+        for attempt in range(retries):
+            try:
+                response = requests.post(
+                    WEBHOOK_URL,
+                    json=payload,
+                    timeout=timeout
+                )
+
+                if response.status_code < 300:
+                    return True
+
+                logger.warning(f"Webhook failed (status {response.status_code}) attempt {attempt + 1}")
+
+            except requests.exceptions.Timeout:
+                logger.warning(f"Webhook timeout attempt {attempt + 1}")
+
+            except Exception as e:
+                logger.error(f"Webhook error: {str(e)} attempt {attempt + 1}")
+
+            time.sleep(1)
+
+        logger.error("Webhook failed after retries")
+        return False
 
     if q.data_od and q.data_do and q.numer_domku:
         if is_conflict(q.data_od, q.data_do, q.numer_domku):
@@ -252,20 +400,24 @@ def handle(q: Question):
             "data_od": q.data_od,
             "data_do": q.data_do,
             "imie": q.imie,
-            "telefon": q.telefon
+            "telefon": q.telefon,
             "email": q.email
         })
 
         save_db(reservations)
 
         send_webhook({
-            "typ": "rezerwacja",
-            "domek": q.numer_domku,
-            "od": q.data_od,
-            "do": q.data_do,
-            "imie": q.imie,
-            "telefon": q.telefon
-            "email": q.email
+            "type": "reservation",
+            "reservation": {
+                "house_id": q.numer_domku,
+                "date_from": q.data_od,
+                "date_to": q.data_do
+            },
+            "customer": {
+                "name": q.imie,
+                "phone": q.telefon,
+                "email": q.email
+            }
         })
 
         return "✅ Rezerwacja przyjęta"
@@ -292,6 +444,27 @@ def handle(q: Question):
 
         return "Który domek chcesz zarezerwować?"
 
+    # 🧠 RAG
+    rag_results = search_rag(text)
+
+    if rag_results:
+        context = " ".join(rag_results)
+
+        rag_prompt = f"""
+        Odpowiedz WYŁĄCZNIE na podstawie poniższych danych.
+        Jeśli nie ma odpowiedzi w danych → napisz: "brak informacji".
+
+        DANE:
+        {context}
+
+        PYTANIE:
+        {text}
+        """
+
+        rag_response = ai_answer(rag_prompt, mem)
+        if rag_response and "brak informacji" not in rag_response.lower():
+            return rag_response
+
     # 🤖 AI fallback
     ai = ai_answer(text, mem)
     if ai:
@@ -311,26 +484,20 @@ def availability():
     return load_db()
 
 @app.delete("/reservation")
-def delete(data: dict, token: str = Header(None)):
-    if not verify(token):
-        return {"error":"unauthorized"}
-
+def delete(data: dict, user=Depends(get_current_user)):
     global reservations
-    reservations = [r for r in reservations if r["telefon"] != data["telefon"]]
+    reservations = [r for r in reservations if r.get("telefon") != data.get("telefon")]
     save_db(reservations)
     return {"ok":True}
 
 @app.delete("/unblock")
-def unblock(data: dict, token: str = Header(None)):
-    if not verify(token):
-        return {"error":"unauthorized"}
-
+def unblock(data: dict, user=Depends(get_current_user)):
     global reservations
     reservations = [
         r for r in reservations
         if not (
-            r["numer_domku"] == data["numer_domku"] and
-            r["data_od"] == data["data_od"]
+                r.get("numer_domku") == data.get("numer_domku") and
+                r.get("data_od") == data.get("data_od")
         )
     ]
     save_db(reservations)
