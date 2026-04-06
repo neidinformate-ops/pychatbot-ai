@@ -247,6 +247,7 @@ def register(data: RegisterData):
 @app.post("/client/setup")
 def client_setup(data: ClientSetupData, user=Depends(get_current_user)):
     client_id = get_client_id(user)
+    print("CLIENT_ID:", client_id)
 
     with open(f"Dane_{client_id}.txt", "w", encoding="utf-8") as f:
         f.write(data.text.strip())
