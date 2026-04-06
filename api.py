@@ -83,7 +83,7 @@ def load_rag_for_client(client_id):
         logger.error(f"RAG error ({client_id}): {e}")
 
 
-def search_rag(query, client_id, k=3, threshold=0.8):
+def search_rag(query, client_id, k=3, threshold=0.5):
     if client_id not in RAG_STORE:
         return []
 
@@ -360,6 +360,7 @@ def ai_answer(question, context=None, mem=None, force_context=False):
         return None
 
 def handle(q: Question, user=None):
+    RAG_STORE.clear()
     if not check_rate_limit(q.session_id):
         return "⛔ Za dużo zapytań"
 
@@ -393,6 +394,8 @@ def handle(q: Question, user=None):
         return f"✅ Rezerwacja zapisana: domek {q.numer_domku} od {q.data_od} do {q.data_do}"
     load_rag_for_client(client_id)
     rag = search_rag(q.question, client_id)
+    print("CLIENT:", client_id)
+    print("RAG:", rag)
 
     # 🐛 DEBUG RAG
     logger.info(f"RAG results: {rag}")
