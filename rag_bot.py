@@ -11,14 +11,38 @@ if not api_key:
 
 # 📂 Wczytaj dane
 with open("Dane.txt", "r", encoding="utf-8") as f:
-    text = f.read()
+    raw = f.read()
 
-# ✂️ Podział tekstu
+# 🔥 NOWY CHUNKING (NAPRAWA RAG)
+chunks = []
+current = ""
+
+for line in raw.split("\n"):
+    line = line.strip()
+    if not line:
+        continue
+
+    if line.startswith("Pytanie:"):
+        if current:
+            chunks.append(current.strip())
+        current = line
+    else:
+        current += " " + line
+
+if current:
+    chunks.append(current.strip())
+
+print("CHUNKS:", chunks[:3])  # debug
+
+# ✂️ Podział tekstu (zostawiamy jak było)
 text_splitter = CharacterTextSplitter(
     chunk_size=200,
     chunk_overlap=20
 )
-texts = text_splitter.split_text(text)
+
+texts = []
+for chunk in chunks:
+    texts.extend(text_splitter.split_text(chunk))
 
 # 🧠 Embeddings
 embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
@@ -50,6 +74,8 @@ while True:
     # 🔍 Szukanie kontekstu
     docs = db.similarity_search(query, k=3)
     context = "\n".join([doc.page_content for doc in docs])
+
+    print("RAG:", context)  # debug
 
     # 🧾 Prompt
     prompt = f"""
