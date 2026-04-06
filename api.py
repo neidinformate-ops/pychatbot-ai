@@ -43,6 +43,10 @@ def load_rag_for_client(client_id):
         index_file = f"rag_{client_id}.index"
         data_file = f"rag_{client_id}.json"
         txt_file = f"Dane_{client_id}.txt"
+        print("SZUKAM PLIKU:", txt_file)
+
+        if not os.path.exists(txt_file):
+            print("❌ NIE MA PLIKU")
 
         if os.path.exists(index_file) and os.path.exists(data_file):
             index = faiss.read_index(index_file)
@@ -360,6 +364,7 @@ def ai_answer(question, context=None, mem=None, force_context=False):
         return None
 
 def handle(q: Question, user=None):
+    print("CLIENT_ID:", user)
     RAG_STORE.clear()
     if not check_rate_limit(q.session_id):
         return "⛔ Za dużo zapytań"
@@ -439,7 +444,7 @@ def handle(q: Question, user=None):
 @app.post("/ask")
 def ask(q: Question, user=Depends(get_current_user)):
     return {"answer": handle(q, user)}
-
+print("USER:", user)
 
 @app.get("/availability")
 def availability(user=Depends(get_current_user)):
