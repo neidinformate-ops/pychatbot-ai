@@ -365,7 +365,11 @@ def ai_answer(question, context=None, mem=None, force_context=False):
         return None
 
 def handle(q: Question, user=None):
-    print("CLIENT_ID:", user)
+    print("HANDLE USER:", user)
+
+    client_id = user["id"] if user else "default"
+    print("CLIENT_ID:", client_id)
+
     RAG_STORE.clear()
     if not check_rate_limit(q.session_id):
         return "⛔ Za dużo zapytań"
@@ -444,8 +448,8 @@ def handle(q: Question, user=None):
 # =========================
 @app.post("/ask")
 def ask(q: Question, user=Depends(get_current_user)):
-    return {"answer": handle(q, user)}
-print("USER:", user)
+    print("USER:", user)
+    return handle(q, user)
 
 @app.get("/availability")
 def availability(user=Depends(get_current_user)):
