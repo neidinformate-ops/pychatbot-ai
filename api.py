@@ -60,7 +60,25 @@ def load_rag_for_client(client_id):
             txt_file = "Dane.txt"
 
         with open(txt_file, "r", encoding="utf-8") as f:
-            chunks = [c.strip() for c in f.read().split("\n") if c.strip()]
+            raw = f.read()
+
+        chunks = []
+        current = ""
+
+        for line in raw.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+
+            if line.startswith("Pytanie:"):
+                if current:
+                    chunks.append(current.strip())
+                current = line
+            else:
+                current += " " + line
+
+        if current:
+            chunks.append(current.strip())
 
         embeddings = []
         for c in chunks:
