@@ -2,7 +2,6 @@ import os
 import json
 from datetime import datetime
 import logging
-import requests
 import time
 
 from fastapi import FastAPI, Depends, HTTPException
@@ -18,7 +17,6 @@ from auth import create_user, verify_password, create_token, get_user, get_curre
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 app = FastAPI()
-allow_origins=["*"],
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -34,30 +32,46 @@ logger = logging.getLogger("app")
 # 🧠 RAG
 # =========================
 RAG_STORE = {}
-
 def load_rag_for_client(client_id):
-    if client_id in RAG_STORE:
-        return
+    TTL = 600  # 10 minut
 
+    # 🔥 TTL check
+    if client_id in RAG_STORE:
+        created = RAG_STORE[client_id].get("created_at")
+
+        if created and time.time() - created < TTL:
+            return
+        else:
+            RAG_STORE.pop(client_id, None)
+
+    # 🔥 kontrola cache
+    if len(RAG_STORE) > 100:
+        oldest_client = min(
+            RAG_STORE.items(),
+            key=lambda x: x[1].get("created_at", time.time())
+        )[0]
+
+        RAG_STORE.pop(oldest_client, None)
     try:
         index_file = f"rag_{client_id}.index"
         data_file = f"rag_{client_id}.json"
         txt_file = f"Dane_{client_id}.txt"
-        print("SZUKAM PLIKU:", txt_file)
-
-        if not os.path.exists(txt_file):
-            print("❌ NIE MA PLIKU")
+        logger.info(f"SZUKAM PLIKU: {txt_file}")
 
         if os.path.exists(index_file) and os.path.exists(data_file):
             index = faiss.read_index(index_file)
             with open(data_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
-            RAG_STORE[client_id] = {"index": index, "data": data}
+            RAG_STORE[client_id] = {
+                "index": index,
+                "data": data,
+                "created_at": time.time()
+            }
             return
 
         if not os.path.exists(txt_file):
-            txt_file = "Dane.txt"
+            return
 
         with open(txt_file, "r", encoding="utf-8") as f:
             raw = f.read()
@@ -65,38 +79,53 @@ def load_rag_for_client(client_id):
         chunks = []
         current = ""
 
+
         for line in raw.split("\n"):
             line = line.strip()
             if not line:
                 continue
 
-            if line.startswith("Pytanie:"):
+            # nowy chunk gdy zaczyna się pytanie
+            if line.lower().startswith("pytanie"):
                 if current:
                     chunks.append(current.strip())
                 current = line
             else:
                 current += " " + line
 
+        # ostatni chunk
         if current:
             chunks.append(current.strip())
 
-        embeddings = []
-        for c in chunks:
-            emb = client.embeddings.create(
-                model="text-embedding-3-small",
-                input=c
-            )
-            embeddings.append(emb.data[0].embedding)
+        # 🔥 NOWE — usuwamy za krótkie i za długie
+        chunks = [
+            c for c in chunks
+            if 50 < len(c) < 500
+        ]
+
+        # limit
+        chunks = chunks[:100]
+
+        emb = client.embeddings.create(
+            model="text-embedding-3-small",
+            input=chunks
+        )
+
+        embeddings = [e.embedding for e in emb.data]
 
         if not embeddings:
+            logger.error(f"Brak embeddings dla {client_id}")
             return
 
         dim = len(embeddings[0])
         index = faiss.IndexFlatL2(dim)
         index.add(np.array(embeddings).astype("float32"))
 
-        RAG_STORE[client_id] = {"index": index, "data": chunks}
-
+        RAG_STORE[client_id] = {
+            "index": index,
+            "data": chunks,
+            "created_at": time.time()
+        }
         faiss.write_index(index, index_file)
         with open(data_file, "w", encoding="utf-8") as f:
             json.dump(chunks, f, ensure_ascii=False, indent=2)
@@ -105,7 +134,7 @@ def load_rag_for_client(client_id):
         logger.error(f"RAG error ({client_id}): {e}")
 
 
-def search_rag(query, client_id, k=3, threshold=0.5):
+def search_rag(query, client_id, k=3):
     if client_id not in RAG_STORE:
         return []
 
@@ -122,15 +151,19 @@ def search_rag(query, client_id, k=3, threshold=0.5):
         return []
 
     q_vec = np.array([emb.data[0].embedding]).astype("float32")
+
     D, I = index.search(q_vec, k)
 
     results = []
-    for dist, idx in zip(D[0], I[0]):
-        if idx < len(data) and dist < threshold:
+
+    for i, idx in enumerate(I[0]):
+        if idx < len(data) and D[0][i] < 2.0:
             results.append(data[idx])
 
-    return results
+    if not results:
+        return sorted(data, key=lambda x: len(x), reverse=True)[:2]
 
+    return results
 
 # =========================
 # 💾 DB
@@ -182,6 +215,12 @@ class MemoryStore:
         return self.store.get(key)
 
     def set(self, key, value):
+        # 🔥 LIMIT pamięci (ochrona przed memory leak)
+        if len(self.store) > 1000:
+            # usuń tylko najstarszy wpis
+            first_key = next(iter(self.store))
+            self.store.pop(first_key)
+
         self.store[key] = value
 
     def clear(self, key):
@@ -212,11 +251,12 @@ rate_limit_store = {}
 RATE_LIMIT = 10
 RATE_WINDOW = 10
 
-
 def check_rate_limit(session_id):
     now = time.time()
 
     rate_limit_store.setdefault(session_id, [])
+
+    # usuń stare requesty
     rate_limit_store[session_id] = [
         t for t in rate_limit_store[session_id] if now - t < RATE_WINDOW
     ]
@@ -276,7 +316,7 @@ def client_setup(data: ClientSetupData, user=Depends(get_current_user)):
         if os.path.exists(fpath):
             os.remove(fpath)
 
-    return {"ok": True}
+
 
 
 # =========================
@@ -304,71 +344,80 @@ class Question(BaseModel):
 # 🤖 LOGIKA
 # =========================
 def update_memory(q, client_id):
-    key = f"{client_id}:{q.session_id or 'default'}"
-    mem = memory_service.get_memory(key)
+    session_key = f"{client_id}:{q.session_id}"
 
-    # 🧠 historia rozmowy (ostatnie 3 wiadomości)
+    mem = memory_service.get_memory(session_key)
+
     history = mem.get("history", [])
     history.append({"role": "user", "content": q.question})
 
-    # trzymaj tylko ostatnie 3
     history = history[-6:]
 
     mem["history"] = history
 
-    memory_service.set(key, mem)
+    memory_service.set(session_key, mem)
+
     return mem
 
 def ai_answer(question, context=None, mem=None, force_context=False):
     try:
         if not os.getenv("OPENAI_API_KEY"):
             return None
-
+        response = None
         system_prompt = """
-        Jesteś profesjonalnym chatbotem firmy.
+        Jesteś chatbotem firmy.
 
-        ODPOWIADAJ WYŁĄCZNIE na podstawie dostarczonych danych.
+        Masz dostęp do danych firmy (sekcja DANE).
 
         Zasady:
-        - jeśli dane istnieją → MUSISZ ich użyć
-        - NIE twórz ogólnych odpowiedzi
-        - NIE zgaduj
-        - NIE dodawaj informacji spoza danych
+        1. Odpowiadaj TYLKO na podstawie sekcji DANE
+        2. Jeśli brak informacji → powiedz to jasno
+        3. NIE zgaduj
+        4. NIE dodawaj nic spoza danych
 
-        Jeśli nie ma danych:
-        - powiedz jasno że nie masz informacji
-
-        Styl:
-        - krótko (2-4 zdania)
-        - naturalnie
+        Jak odpowiadać:
         - konkretnie
+        - krótko (2–4 zdania)
+        - używaj informacji z DANE
+
+        Priorytet:
+        DANE > HISTORIA > własna wiedza
         """
 
         content = ""
 
-        # 🧠 historia rozmowy
+        # 🧠 historia
         if mem and mem.get("history"):
             history_text = "\n".join(
                 [f"{h['role']}: {h['content']}" for h in mem["history"]]
             )
-            content += f"POPREDNIE WIADOMOŚCI:\n{history_text}\n\n"
+            content += f"HISTORIA:\n{history_text}\n\n"
+
+        # 📚 RAG
         if context:
             content += f"DANE:\n{context}\n\n"
 
-        if mem:
-            content += f"KONTEKST:\n{mem}\n\n"
+        # ❓ pytanie
+        content += f"AKTUALNE PYTANIE:\n{question}"
 
-        content += f"PYTANIE:\n{question}"
+        for _ in range(2):  # 🔁 2 próby
+            try:
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": content}
+                    ],
+                    max_tokens=100,
+                    timeout=10
+                )
+                break
+            except Exception as e:
+                logger.error(f"OpenAI retry error: {e}")
+                time.sleep(1)
 
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": content}
-            ],
-            max_tokens=100
-        )
-
+        if not response:
+            return None
         answer = response.choices[0].message.content.strip()
 
         # ✂️ skracanie jeśli AI się rozpędzi
@@ -383,17 +432,14 @@ def ai_answer(question, context=None, mem=None, force_context=False):
         return None
 
 def handle(q: Question, user=None):
-    print("HANDLE USER:", user)
+    client_id = get_client_id(user) if user else "default"
+    logger.info(f"CLIENT: {client_id}")
+    session_key = f"{client_id}:{q.session_id}"
 
-    client_id = user["id"] if user else "default"
-    print("CLIENT_ID:", client_id)
-
-    RAG_STORE.clear()
-    if not check_rate_limit(q.session_id):
+    # 🚦 rate limit
+    if not check_rate_limit(session_key):
         return "⛔ Za dużo zapytań"
 
-    client_id = get_client_id(user) if user else "default"
-    mem = update_memory(q, client_id)
     # 📅 REZERWACJA
     if q.data_od and q.data_do:
         if not q.numer_domku:
@@ -420,45 +466,46 @@ def handle(q: Question, user=None):
         save_db(db)
 
         return f"✅ Rezerwacja zapisana: domek {q.numer_domku} od {q.data_od} do {q.data_do}"
+
+    # 🧠 RAG
     load_rag_for_client(client_id)
+
     rag = search_rag(q.question, client_id)
-    print("CLIENT:", client_id)
-    print("RAG:", rag)
+    logger.info(f"RAG: {rag}")
 
-    # 🐛 DEBUG RAG
-    logger.info(f"RAG results: {rag}")
+    rag = [r for r in rag if len(r) > 20]
 
-    if rag:
-        logger.info(f"RAG context: {' '.join(rag)}")
-    else:
-        logger.warning("RAG EMPTY")
+    if not rag:
+        logger.warning(f"Empty RAG for {client_id}")
+        return "Nie mam informacji w bazie na ten temat."
 
-    if rag:
-        context = " ".join(rag)
+    # 🔥 wybierz najlepsze chunki (dłuższe = więcej info)
+    rag = sorted(rag, key=lambda x: len(x), reverse=True)
 
-        # 🔒 wymuszenie użycia danych
-        ai = ai_answer(q.question, context=context, mem=mem, force_context=True)
-        if ai:
-            history = mem.get("history", [])
-            history.append({"role": "assistant", "content": ai})
-            mem["history"] = history[-6:]
-            memory_service.set(f"{client_id}:{q.session_id or 'default'}", mem)
+    context = " ".join(rag[:2])[:1000]
+    logger.info(f"FINAL CONTEXT: {context}")
 
-            return ai
+    # 🧠 MEMORY
+    # 🧠 MEMORY (user)
+    mem = update_memory(q, client_id)
 
-        # fallback jeśli AI nie zadziałało
-        return context
+    # 🤖 AI
+    ai = ai_answer(q.question, context=context, mem=mem)
 
-    ai = ai_answer(q.question, mem=mem)
     if ai:
+        # 🧠 pobierz świeżą pamięć
+        mem = memory_service.get_memory(session_key)
+
         history = mem.get("history", [])
         history.append({"role": "assistant", "content": ai})
         mem["history"] = history[-6:]
-        memory_service.set(f"{client_id}:{q.session_id or 'default'}", mem)
+
+        memory_service.set(session_key, mem)
 
         return ai
 
-    return "Chętnie pomogę 🙂 Możesz zapytać o dostępność, ceny albo szczegóły rezerwacji."
+
+    return "Nie mam wystarczających danych, żeby odpowiedzieć."
 
 
 # =========================
@@ -466,7 +513,7 @@ def handle(q: Question, user=None):
 # =========================
 @app.post("/ask")
 def ask(q: Question, user=Depends(get_current_user)):
-    print("USER:", user)
+    logger.info(f"USER: {user}")
     return handle(q, user)
 
 @app.get("/availability")
