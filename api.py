@@ -514,7 +514,12 @@ def handle(q: Question, user=None):
 @app.post("/ask")
 def ask(q: Question, user=Depends(get_current_user)):
     logger.info(f"USER: {user}")
-    return handle(q, user)
+
+    result = handle(q, user)
+
+    return {
+        "answer": result if isinstance(result, str) else str(result)
+    }
 
 @app.get("/availability")
 def availability(user=Depends(get_current_user)):
