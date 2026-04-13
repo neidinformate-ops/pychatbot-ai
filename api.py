@@ -1,6 +1,5 @@
 import os
 import json
-import time
 import logging
 import requests
 import numpy as np
@@ -52,10 +51,8 @@ def resolve_client_id(user=None, x_client_id: str = None):
     return "public"
 
 # =========================
-# 🧠 RAG FIXED
+# 🧠 RAG (STARY — ZOSTAJE)
 # =========================
-RAG_STORE = {}
-
 def load_rag(client_id):
     try:
         txt_file = f"Dane_{client_id}.txt"
@@ -102,6 +99,44 @@ def search_rag(query, client_id):
     return [rag["data"][i] for i in I[0]]
 
 # =========================
+# 🧠 RAG 2.0 (NOWY)
+# =========================
+def get_knowledge(client_id):
+    res = requests.get(
+        f"{SUPABASE_URL}/rest/v1/knowledge",
+        headers=HEADERS,
+        params={"client_id": f"eq.{client_id}"}
+    )
+    return [k["content"] for k in res.json()]
+
+
+def get_history(client_id, session_id):
+    res = requests.get(
+        f"{SUPABASE_URL}/rest/v1/messages",
+        headers=HEADERS,
+        params={
+            "client_id": f"eq.{client_id}",
+            "session_id": f"eq.{session_id}",
+            "order": "created_at.desc",
+            "limit": "6"
+        }
+    )
+    return res.json()
+
+
+def save_message(client_id, session_id, role, text):
+    requests.post(
+        f"{SUPABASE_URL}/rest/v1/messages",
+        headers=HEADERS,
+        json={
+            "client_id": client_id,
+            "session_id": session_id,
+            "role": role,
+            "text": text
+        }
+    )
+
+# =========================
 # 🔐 AUTH
 # =========================
 class LoginData(BaseModel):
@@ -132,8 +167,19 @@ def register(data: RegisterData):
 def client_setup(data: ClientSetupData, user=Depends(get_current_user)):
     client_id = resolve_client_id(user)
 
+    # 🔥 zapis do pliku (stary RAG)
     with open(f"Dane_{client_id}.txt", "w") as f:
         f.write(data.text)
+
+    # 🔥 zapis do DB (nowy RAG)
+    requests.post(
+        f"{SUPABASE_URL}/rest/v1/knowledge",
+        headers=HEADERS,
+        json={
+            "client_id": client_id,
+            "content": data.text
+        }
+    )
 
     return {"ok": True}
 
@@ -149,7 +195,7 @@ class Question(BaseModel):
     email: Optional[EmailStr] = None
 
 # =========================
-# 📅 RESERVATIONS (SUPABASE)
+# 📅 RESERVATIONS
 # =========================
 def check_conflict(client_id, data_od, data_do, numer_domku):
     res = requests.get(
@@ -199,27 +245,62 @@ def availability(user=Depends(get_current_user), x_client_id: str = Header(None)
     return res.json()
 
 # =========================
-# 🤖 CHAT (RAG + AI)
+# 🤖 CHAT (RAG 2.0 + MEMORY)
 # =========================
 @app.post("/ask")
 def ask(q: Question, user=Depends(get_current_user), x_client_id: str = Header(None)):
     client_id = resolve_client_id(user, x_client_id)
 
-    # 👉 reservation via chat
+    # 👉 rezerwacja przez chat
     if q.data_od and q.data_do:
         return create_reservation(q.dict(), user, x_client_id)
 
+    # 💾 zapisz user
+    save_message(client_id, q.session_id, "user", q.question)
+
+    # 🧠 knowledge DB
+    knowledge = get_knowledge(client_id)
+
+    # 🧠 stary RAG fallback
     rag = search_rag(q.question, client_id)
 
-    context = " ".join(rag) if rag else ""
+    # 💬 history
+    history = get_history(client_id, q.session_id)
+
+    context_parts = []
+
+    if knowledge:
+        context_parts.append(" ".join(knowledge[:3]))
+
+    if rag:
+        context_parts.append(" ".join(rag))
+
+    context = "\n".join(context_parts)
+
+    messages = [
+        {"role": "system", "content": "Jesteś asystentem klienta. Pomagasz w rezerwacjach."}
+    ]
+
+    for m in reversed(history):
+        messages.append({
+            "role": m["role"],
+            "content": m["text"]
+        })
+
+    messages.append({
+        "role": "user",
+        "content": context + "\n\n" + q.question
+    })
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": "Odpowiadaj na podstawie danych klienta"},
-            {"role": "user", "content": context + "\n\n" + q.question}
-        ],
+        messages=messages,
         max_tokens=150
     )
 
-    return {"answer": response.choices[0].message.content}
+    answer = response.choices[0].message.content
+
+    # 💾 zapisz AI
+    save_message(client_id, q.session_id, "assistant", answer)
+
+    return {"answer": answer}
