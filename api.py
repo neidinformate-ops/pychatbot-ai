@@ -4,12 +4,13 @@ import logging
 import requests
 import numpy as np
 import faiss
+import stripe
 
-from fastapi import FastAPI, Depends, HTTPException, Header
+from fastapi import FastAPI, Depends, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from openai import OpenAI
 from auth import create_user, verify_password, create_token, get_user, get_current_user
@@ -28,6 +29,10 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
+# 🔐 STRIPE
+stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+
 app = FastAPI()
 
 app.add_middleware(
@@ -39,6 +44,42 @@ app.add_middleware(
 )
 
 logging.basicConfig(level=logging.INFO)
+
+# =========================
+# 🚦 RATE LIMIT
+# =========================
+RATE_LIMIT = {}
+
+def check_rate_limit(client_id):
+    now = datetime.now()
+
+    if client_id not in RATE_LIMIT:
+        RATE_LIMIT[client_id] = []
+
+    RATE_LIMIT[client_id] = [
+        t for t in RATE_LIMIT[client_id]
+        if now - t < timedelta(minutes=1)
+    ]
+
+    if len(RATE_LIMIT[client_id]) > 20:
+        raise HTTPException(status_code=429, detail="Too many requests")
+
+    RATE_LIMIT[client_id].append(now)
+
+# =========================
+# 📊 PLAN
+# =========================
+def get_plan(client_id):
+    res = requests.get(
+        f"{SUPABASE_URL}/rest/v1/subscriptions",
+        headers=HEADERS,
+        params={"client_id": f"eq.{client_id}"}
+    ).json()
+
+    if res and res[0].get("plan") == "pro":
+        return "pro"
+
+    return "free"
 
 # =========================
 # 🔥 MULTI TENANT
@@ -167,11 +208,9 @@ def register(data: RegisterData):
 def client_setup(data: ClientSetupData, user=Depends(get_current_user)):
     client_id = resolve_client_id(user)
 
-    # 🔥 zapis do pliku (stary RAG)
     with open(f"Dane_{client_id}.txt", "w") as f:
         f.write(data.text)
 
-    # 🔥 zapis do DB (nowy RAG)
     requests.post(
         f"{SUPABASE_URL}/rest/v1/knowledge",
         headers=HEADERS,
@@ -245,26 +284,73 @@ def availability(user=Depends(get_current_user), x_client_id: str = Header(None)
     return res.json()
 
 # =========================
-# 🤖 CHAT (RAG 2.0 + MEMORY)
+# 💰 STRIPE CHECKOUT
+# =========================
+@app.post("/create-checkout")
+def create_checkout(user=Depends(get_current_user)):
+    client_id = user["id"]
+
+    session = stripe.checkout.Session.create(
+        payment_method_types=["card"],
+        mode="subscription",
+        line_items=[{
+            "price": "price_1TM9Wy5nxB98y2oCcbtg1Khu"
+        }],
+        success_url="https://web-production-1de94.up.railway.app",
+        cancel_url="https://web-production-1de94.up.railway.app",
+        metadata={"client_id": client_id}
+    )
+
+    return {"url": session.url}
+
+# =========================
+# 🔐 STRIPE WEBHOOK
+# =========================
+@app.post("/webhook")
+async def stripe_webhook(request: Request):
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+
+    try:
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, STRIPE_WEBHOOK_SECRET
+        )
+    except Exception:
+        raise HTTPException(status_code=400)
+
+    if event["type"] == "checkout.session.completed":
+        session = event["data"]["object"]
+        client_id = session["metadata"]["client_id"]
+
+        requests.post(
+            f"{SUPABASE_URL}/rest/v1/subscriptions",
+            headers=HEADERS,
+            json={
+                "client_id": client_id,
+                "plan": "pro"
+            }
+        )
+
+    return {"ok": True}
+
+# =========================
+# 🤖 CHAT (STRICT RAG + SECURITY)
 # =========================
 @app.post("/ask")
 def ask(q: Question, user=Depends(get_current_user), x_client_id: str = Header(None)):
     client_id = resolve_client_id(user, x_client_id)
 
-    # 👉 rezerwacja przez chat
+    # 🔐 SECURITY
+    check_rate_limit(client_id)
+    plan = get_plan(client_id)
+
     if q.data_od and q.data_do:
         return create_reservation(q.dict(), user, x_client_id)
 
-    # 💾 zapisz user
     save_message(client_id, q.session_id, "user", q.question)
 
-    # 🧠 knowledge DB
     knowledge = get_knowledge(client_id)
-
-    # 🧠 stary RAG fallback
     rag = search_rag(q.question, client_id)
-
-    # 💬 history
     history = get_history(client_id, q.session_id)
 
     context_parts = []
@@ -277,8 +363,24 @@ def ask(q: Question, user=Depends(get_current_user), x_client_id: str = Header(N
 
     context = "\n".join(context_parts)
 
+    # 🔥 STRICT RAG
+    if not context.strip():
+        return {
+            "answer": "❌ Brak danych w bazie klienta. Skontaktuj się z właścicielem."
+        }
+
     messages = [
-        {"role": "system", "content": "Jesteś asystentem klienta. Pomagasz w rezerwacjach."}
+        {
+            "role": "system",
+            "content": """
+Jesteś asystentem klienta.
+
+ODPOWIADAJ TYLKO na podstawie danych.
+Jeśli brak danych → napisz: "Nie mam takich danych".
+
+NIE ZGADUJ.
+"""
+        }
     ]
 
     for m in reversed(history):
@@ -300,7 +402,6 @@ def ask(q: Question, user=Depends(get_current_user), x_client_id: str = Header(N
 
     answer = response.choices[0].message.content
 
-    # 💾 zapisz AI
     save_message(client_id, q.session_id, "assistant", answer)
 
     return {"answer": answer}
