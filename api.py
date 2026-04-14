@@ -1,13 +1,13 @@
 import os
 import logging
 import requests
-import numpy as np
-import faiss
 import stripe
+import uuid
+import re
 
 from fastapi import FastAPI, Depends, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime, timedelta
 
@@ -15,7 +15,7 @@ from openai import OpenAI
 from auth import create_user, verify_password, create_token, get_user, get_current_user
 
 # =========================
-# 🔥 CONFIG
+# CONFIG
 # =========================
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -28,13 +28,11 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
-# 🔐 STRIPE
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 
 app = FastAPI()
 
-# 🔥 CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -46,28 +44,44 @@ app.add_middleware(
 logging.basicConfig(level=logging.INFO)
 
 # =========================
-# 🚦 RATE LIMIT
+# 🔐 SECURITY
 # =========================
+LOGIN_ATTEMPTS = {}
+IP_RATE = {}
 RATE_LIMIT = {}
+
+def check_login_attempts(email):
+    now = datetime.now()
+    LOGIN_ATTEMPTS.setdefault(email, [])
+    LOGIN_ATTEMPTS[email] = [t for t in LOGIN_ATTEMPTS[email] if now - t < timedelta(minutes=10)]
+    if len(LOGIN_ATTEMPTS[email]) > 5:
+        raise HTTPException(429, "Too many login attempts")
+
+def record_failed_login(email):
+    LOGIN_ATTEMPTS.setdefault(email, []).append(datetime.now())
+
+def check_ip_rate(ip):
+    now = datetime.now()
+    IP_RATE.setdefault(ip, [])
+    IP_RATE[ip] = [t for t in IP_RATE[ip] if now - t < timedelta(minutes=1)]
+    if len(IP_RATE[ip]) > 50:
+        raise HTTPException(429, "Too many requests")
+    IP_RATE[ip].append(now)
 
 def check_rate_limit(client_id):
     now = datetime.now()
-
-    if client_id not in RATE_LIMIT:
-        RATE_LIMIT[client_id] = []
-
-    RATE_LIMIT[client_id] = [
-        t for t in RATE_LIMIT[client_id]
-        if now - t < timedelta(minutes=1)
-    ]
-
+    RATE_LIMIT.setdefault(client_id, [])
+    RATE_LIMIT[client_id] = [t for t in RATE_LIMIT[client_id] if now - t < timedelta(minutes=1)]
     if len(RATE_LIMIT[client_id]) > 20:
-        raise HTTPException(status_code=429, detail="Too many requests")
-
+        raise HTTPException(429)
     RATE_LIMIT[client_id].append(now)
 
+def is_safe_input(text):
+    blocked = ["ignore previous", "system prompt", "override"]
+    return not any(b in text.lower() for b in blocked)
+
 # =========================
-# 📊 PLAN
+# PLAN
 # =========================
 def get_plan(client_id):
     res = requests.get(
@@ -76,120 +90,85 @@ def get_plan(client_id):
         params={"client_id": f"eq.{client_id}"}
     ).json()
 
-    if res and res[0].get("plan") == "pro":
-        return "pro"
+    if not res:
+        return "free"
+    return res[0].get("plan", "free")
 
-    return "free"
+def get_limit(plan):
+    return {"free": 10, "pro": 200, "business": 999999}.get(plan, 10)
 
 # =========================
-# 📊 USAGE TRACKING
+# USAGE
 # =========================
 def get_usage(client_id):
-    today = datetime.now().date()
+    today = str(datetime.now().date())
 
     res = requests.get(
         f"{SUPABASE_URL}/rest/v1/usage",
         headers=HEADERS,
-        params={
-            "client_id": f"eq.{client_id}",
-            "date": f"eq.{today}"
-        }
+        params={"client_id": f"eq.{client_id}", "date": f"eq.{today}"}
     ).json()
 
-    if res:
-        return res[0]["requests"]
-
-    return 0
-
+    return res[0]["requests"] if res else 0
 
 def increment_usage(client_id):
-    today = datetime.now().date()
-
+    today = str(datetime.now().date())
     current = get_usage(client_id)
 
     if current == 0:
         requests.post(
             f"{SUPABASE_URL}/rest/v1/usage",
             headers=HEADERS,
-            json={
-                "client_id": client_id,
-                "date": str(today),
-                "requests": 1
-            }
+            json={"client_id": client_id, "date": today, "requests": 1}
         )
     else:
         requests.patch(
             f"{SUPABASE_URL}/rest/v1/usage",
             headers=HEADERS,
-            params={
-                "client_id": f"eq.{client_id}",
-                "date": f"eq.{today}"
-            },
-            json={
-                "requests": current + 1
-            }
+            params={"client_id": f"eq.{client_id}", "date": f"eq.{today}"},
+            json={"requests": current + 1}
         )
 
 # =========================
-# 🔥 MULTI TENANT
+# API KEYS
 # =========================
-def resolve_client_id(user=None, x_client_id: str = None):
-    if user:
-        return user["id"]
-    if x_client_id:
-        return x_client_id
-    return "public"
+def create_api_key(client_id):
+    key = str(uuid.uuid4())
+    requests.post(
+        f"{SUPABASE_URL}/rest/v1/api_keys",
+        headers=HEADERS,
+        json={"client_id": client_id, "key": key}
+    )
+    return key
 
-# =========================
-# 🧠 RAG
-# =========================
-def load_rag(client_id):
-    try:
-        txt_file = f"Dane_{client_id}.txt"
-
-        if not os.path.exists(txt_file):
-            return None
-
-        with open(txt_file, "r", encoding="utf-8") as f:
-            text = f.read()
-
-        chunks = text.split("\n\n")[:50]
-
-        emb = client.embeddings.create(
-            model="text-embedding-3-small",
-            input=chunks
-        )
-
-        vectors = [e.embedding for e in emb.data]
-
-        index = faiss.IndexFlatL2(len(vectors[0]))
-        index.add(np.array(vectors).astype("float32"))
-
-        return {"index": index, "data": chunks}
-
-    except Exception as e:
-        print("RAG ERROR:", e)
+def get_client_by_api_key(api_key):
+    if not api_key:
         return None
 
+    res = requests.get(
+        f"{SUPABASE_URL}/rest/v1/api_keys",
+        headers=HEADERS,
+        params={"key": f"eq.{api_key}"}
+    ).json()
 
-def search_rag(query, client_id):
-    rag = load_rag(client_id)
-
-    if not rag:
-        return []
-
-    emb = client.embeddings.create(
-        model="text-embedding-3-small",
-        input=query
-    )
-
-    q_vec = np.array([emb.data[0].embedding]).astype("float32")
-    D, I = rag["index"].search(q_vec, 3)
-
-    return [rag["data"][i] for i in I[0]]
+    return res[0]["client_id"] if res else None
 
 # =========================
-# 🧠 RAG 2.0
+# CLIENT RESOLVE
+# =========================
+def resolve_client_id(user=None, api_key=None):
+    if user:
+        return user["id"]
+
+    if api_key:
+        cid = get_client_by_api_key(api_key)
+        if cid:
+            return cid
+
+    raise HTTPException(status_code=401, detail="Unauthorized")
+
+# =========================
+# DB RAG
 # =========================
 def get_knowledge(client_id):
     res = requests.get(
@@ -198,7 +177,6 @@ def get_knowledge(client_id):
         params={"client_id": f"eq.{client_id}"}
     )
     return [k["content"] for k in res.json()]
-
 
 def get_history(client_id, session_id):
     res = requests.get(
@@ -213,7 +191,6 @@ def get_history(client_id, session_id):
     )
     return res.json()
 
-
 def save_message(client_id, session_id, role, text):
     requests.post(
         f"{SUPABASE_URL}/rest/v1/messages",
@@ -227,116 +204,88 @@ def save_message(client_id, session_id, role, text):
     )
 
 # =========================
-# 🔐 AUTH
+# MODELS
 # =========================
 class LoginData(BaseModel):
     email: str
     password: str
 
-class RegisterData(BaseModel):
-    email: str
-    password: str
-
-class ClientSetupData(BaseModel):
-    text: str
-
-@app.post("/login")
-def login(data: LoginData):
-    user = get_user(data.email)
-
-    if not user or not verify_password(data.password, user["password"]):
-        raise HTTPException(status_code=401)
-
-    return {"token": create_token(user["id"])}
-
-@app.post("/register")
-def register(data: RegisterData):
-    return {"ok": True, "user": create_user(data.email, data.password)["email"]}
-
-@app.post("/client/setup")
-def client_setup(data: ClientSetupData, user=Depends(get_current_user)):
-    client_id = resolve_client_id(user)
-
-    with open(f"Dane_{client_id}.txt", "w") as f:
-        f.write(data.text)
-
-    requests.post(
-        f"{SUPABASE_URL}/rest/v1/knowledge",
-        headers=HEADERS,
-        json={
-            "client_id": client_id,
-            "content": data.text
-        }
-    )
-
-    return {"ok": True}
-
-# =========================
-# 📦 MODEL
-# =========================
 class Question(BaseModel):
     question: str
     session_id: Optional[str] = "default"
 
 # =========================
-# 🤖 CHAT (STRICT RAG + LIMIT + USAGE)
+# AUTH
+# =========================
+@app.post("/login")
+def login(data: LoginData):
+    check_login_attempts(data.email)
+
+    user = get_user(data.email)
+
+    if not user or not verify_password(data.password, user["password"]):
+        record_failed_login(data.email)
+        raise HTTPException(401)
+
+    return {"token": create_token(user["id"])}
+@app.post("/register")
+def register(data: LoginData):
+    existing = get_user(data.email)
+
+    if existing:
+        raise HTTPException(status_code=400, detail="User exists")
+
+    user = create_user(data.email, data.password)
+
+    return {
+        "ok": True,
+        "user": user["email"]
+    }
+# =========================
+# API KEY
+# =========================
+@app.post("/create-api-key")
+def create_key(user=Depends(get_current_user)):
+    return {"api_key": create_api_key(user["id"])}
+
+# =========================
+# CHAT
 # =========================
 @app.post("/ask")
-def ask(q: Question, user=Depends(get_current_user), x_client_id: str = Header(None)):
-    client_id = resolve_client_id(user, x_client_id)
+def ask(q: Question, request: Request, user=Depends(get_current_user), x_api_key: str = Header(None)):
+    ip = request.client.host
+    check_ip_rate(ip)
+
+    if not is_safe_input(q.question):
+        return {"answer": "❌ Niepoprawne zapytanie"}
+
+    client_id = resolve_client_id(user, x_api_key)
 
     check_rate_limit(client_id)
 
     plan = get_plan(client_id)
+    limit = get_limit(plan)
+    usage = get_usage(client_id)
 
-    # 🔥 USAGE LIMIT
-    if plan == "free":
-        usage = get_usage(client_id)
-
-        if usage >= 20:
-            return {"answer": "🔒 Wykorzystałeś dzienny limit. Przejdź na PRO."}
+    if usage >= limit:
+        return {"answer": f"🔒 Limit planu ({plan}) osiągnięty"}
 
     save_message(client_id, q.session_id, "user", q.question)
 
     knowledge = get_knowledge(client_id)
-    rag = search_rag(q.question, client_id)
     history = get_history(client_id, q.session_id)
 
-    context_parts = []
-
-    if knowledge:
-        context_parts.append(" ".join(knowledge[:3]))
-
-    if rag:
-        context_parts.append(" ".join(rag))
-
-    context = "\n".join(context_parts)
+    context = "\n".join(knowledge[:5])
 
     if not context.strip():
-        return {"answer": "❌ Nie mam danych dla tego biznesu."}
+        return {"answer": "❌ Brak danych"}
 
-    messages = [
-        {
-            "role": "system",
-            "content": """
-Jesteś AI asystentem biznesowym.
-
-ZASADY:
-- odpowiadaj WYŁĄCZNIE na podstawie danych
-- NIE zgaduj
-- jeśli brak danych → "❌ Nie mam tej informacji w bazie"
-- zero halucynacji
-"""
-        }
-    ]
+    messages = [{"role": "system", "content": "STRICT MODE"}]
 
     for m in reversed(history):
         messages.append({"role": m["role"], "content": m["text"]})
 
-    messages.append({
-        "role": "user",
-        "content": context + "\n\n" + q.question
-    })
+    messages.append({"role": "user", "content": context + "\n\n" + q.question})
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
@@ -345,70 +294,54 @@ ZASADY:
 
     answer = response.choices[0].message.content
 
-    # 🔥 ZLICZANIE USAGE
     increment_usage(client_id)
-
     save_message(client_id, q.session_id, "assistant", answer)
 
     return {"answer": answer}
 
 # =========================
-# 💳 STRIPE CHECKOUT
+# STRIPE
 # =========================
 @app.post("/create-checkout")
 def create_checkout(user=Depends(get_current_user)):
-    try:
-        client_id = user["id"]
-        price_id = os.getenv("STRIPE_PRICE_ID")
+    client_id = user["id"]
 
-        if not price_id:
-            raise Exception("❌ STRIPE_PRICE_ID missing")
+    session = stripe.checkout.Session.create(
+        payment_method_types=["card"],
+        mode="subscription",
+        line_items=[{
+            "price": os.getenv("STRIPE_PRICE_ID"),
+            "quantity": 1
+        }],
+        success_url="https://web-production-1de94.up.railway.app",
+        cancel_url="https://web-production-1de94.up.railway.app",
+        metadata={"client_id": client_id}
+    )
 
-        print("🔥 PRICE FROM ENV:", price_id)
-
-        session = stripe.checkout.Session.create(
-            payment_method_types=["card"],
-            mode="subscription",
-            line_items=[{
-                "price": price_id,
-                "quantity": 1
-            }],
-            success_url="https://web-production-1de94.up.railway.app",
-            cancel_url="https://web-production-1de94.up.railway.app",
-            metadata={"client_id": client_id}
-        )
-
-        return {"url": session.url}
-
-    except Exception as e:
-        print("🔥 STRIPE ERROR:", str(e))
-        return {"error": str(e)}
+    return {"url": session.url}
 
 # =========================
-# 🔔 STRIPE WEBHOOK (FULL SYNC)
+# WEBHOOK
 # =========================
 @app.post("/webhook")
-async def stripe_webhook(request: Request):
+async def webhook(request: Request):
     payload = await request.body()
-    sig_header = request.headers.get("stripe-signature")
+    sig = request.headers.get("stripe-signature")
 
-    endpoint_secret = STRIPE_WEBHOOK_SECRET
-
-    if not endpoint_secret:
-        print("❌ NO WEBHOOK SECRET")
-        return {"error": "no secret"}
+    if not STRIPE_WEBHOOK_SECRET:
+        print("❌ Missing webhook secret")
+        return {"error": "no webhook secret"}
 
     try:
         event = stripe.Webhook.construct_event(
             payload,
-            sig_header,
-            endpoint_secret
+            sig,
+            STRIPE_WEBHOOK_SECRET
         )
     except Exception as e:
-        print("❌ WEBHOOK ERROR:", e)
-        return {"error": "invalid"}
+        print("❌ Webhook verification failed:", e)
+        return {"error": "invalid webhook"}
 
-    # 🔥 PAYMENT SUCCESS
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
         client_id = session["metadata"]["client_id"]
@@ -416,30 +349,18 @@ async def stripe_webhook(request: Request):
         requests.post(
             f"{SUPABASE_URL}/rest/v1/subscriptions",
             headers=HEADERS,
-            json={
-                "client_id": client_id,
-                "plan": "pro"
-            }
+            json={"client_id": client_id, "plan": "pro"}
         )
 
-        print("🔥 USER UPGRADED:", client_id)
-
-    # 🔥 DOWNGRADE
     if event["type"] in ["customer.subscription.deleted", "invoice.payment_failed"]:
         sub = event["data"]["object"]
-
         client_id = sub.get("metadata", {}).get("client_id")
 
         if client_id:
             requests.post(
                 f"{SUPABASE_URL}/rest/v1/subscriptions",
                 headers=HEADERS,
-                json={
-                    "client_id": client_id,
-                    "plan": "free"
-                }
+                json={"client_id": client_id, "plan": "free"}
             )
-
-            print("⚠️ USER DOWNGRADED:", client_id)
 
     return {"ok": True}
