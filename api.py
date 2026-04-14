@@ -14,6 +14,15 @@ from datetime import datetime, timedelta
 
 from openai import OpenAI
 from auth import create_user, verify_password, create_token, get_user, get_current_user
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 🔥 na start (później ograniczymy)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # =========================
 # 🔥 CONFIG
