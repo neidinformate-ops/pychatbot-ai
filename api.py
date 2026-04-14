@@ -331,3 +331,66 @@ ZASADY:
     save_message(client_id, q.session_id, "assistant", answer)
 
     return {"answer": answer}
+
+# =========================
+# 💳 STRIPE CHECKOUT
+# =========================
+
+@app.post("/create-checkout")
+def create_checkout(user=Depends(get_current_user)):
+    try:
+        client_id = user["id"]
+
+        session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            mode="subscription",
+            line_items=[{
+                "price": os.getenv("STRIPE_PRICE_ID"),  # 🔥 z ENV
+                "quantity": 1
+            }],
+            success_url="https://web-production-1de94.up.railway.app",
+            cancel_url="https://web-production-1de94.up.railway.app",
+            metadata={"client_id": client_id}
+        )
+
+        return {"url": session.url}
+
+    except Exception as e:
+        print("🔥 STRIPE ERROR:", str(e))
+        return {"error": str(e)}
+
+# =========================
+# 🔔 STRIPE WEBHOOK
+# =========================
+@app.post("/webhook")
+async def stripe_webhook(request: Request):
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+
+    try:
+        event = stripe.Webhook.construct_event(
+            payload,
+            sig_header,
+            STRIPE_WEBHOOK_SECRET
+        )
+    except Exception as e:
+        print("❌ WEBHOOK ERROR:", e)
+        return {"error": "invalid"}
+
+    if event["type"] == "checkout.session.completed":
+        session = event["data"]["object"]
+
+        client_id = session["metadata"]["client_id"]
+
+        requests.post(
+            f"{SUPABASE_URL}/rest/v1/subscriptions",
+            headers=HEADERS,
+            json={
+                "client_id": client_id,
+                "plan": "pro"
+            }
+        )
+
+        print("🔥 USER UPGRADED:", client_id)
+
+    return {"ok": True}
