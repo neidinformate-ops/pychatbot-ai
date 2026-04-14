@@ -20,7 +20,7 @@ from auth import create_user, verify_password, create_token, get_user, get_curre
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 SUPABASE_URL = "https://mhsysbmtdwqqptlltfdm.supabase.co"
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")  # 🔥 FIX
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 HEADERS = {
     "apikey": SUPABASE_KEY,
@@ -34,7 +34,7 @@ STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 
 app = FastAPI()
 
-# 🔥 CORS (FIX – tylko raz)
+# 🔥 CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -92,7 +92,7 @@ def resolve_client_id(user=None, x_client_id: str = None):
     return "public"
 
 # =========================
-# 🧠 RAG (STARY — ZOSTAJE)
+# 🧠 RAG
 # =========================
 def load_rag(client_id):
     try:
@@ -228,19 +228,23 @@ def client_setup(data: ClientSetupData, user=Depends(get_current_user)):
 class Question(BaseModel):
     question: str
     session_id: Optional[str] = "default"
-    numer_domku: Optional[str] = None
-    data_od: Optional[str] = None
-    data_do: Optional[str] = None
-    email: Optional[EmailStr] = None
 
 # =========================
-# 🤖 CHAT
+# 🤖 CHAT (STRICT RAG + LIMIT)
 # =========================
 @app.post("/ask")
 def ask(q: Question, user=Depends(get_current_user), x_client_id: str = Header(None)):
     client_id = resolve_client_id(user, x_client_id)
 
     check_rate_limit(client_id)
+
+    plan = get_plan(client_id)
+
+    # 🔥 LIMIT SYSTEM
+    if plan == "free":
+        history = get_history(client_id, q.session_id)
+        if len(history) > 5:
+            return {"answer": "🔒 Limit darmowego planu. Przejdź na PRO."}
 
     save_message(client_id, q.session_id, "user", q.question)
 
@@ -261,37 +265,17 @@ def ask(q: Question, user=Depends(get_current_user), x_client_id: str = Header(N
     if not context.strip():
         return {"answer": "❌ Nie mam danych dla tego biznesu."}
 
-    # 🧠 BUSINESS DETECTION
-    def detect_business(context):
-        context = context.lower()
-        if "barber" in context:
-            return "barber"
-        if "nocleg" in context:
-            return "hotel"
-        if "produkt" in context:
-            return "shop"
-        return "general"
-
-    business = detect_business(context)
-
-    tone = {
-        "barber": "luźny",
-        "hotel": "profesjonalny",
-        "shop": "sprzedażowy"
-    }.get(business, "neutralny")
-
     messages = [
         {
             "role": "system",
-            "content": f"""
+            "content": """
 Jesteś AI asystentem biznesowym.
 
-STYL: {tone}
-
 ZASADY:
-- odpowiadaj tylko na podstawie danych
-- nie zgaduj
-- jeśli brak danych → napisz "Nie mam tej informacji"
+- odpowiadaj WYŁĄCZNIE na podstawie danych
+- NIE zgaduj
+- jeśli brak danych → "❌ Nie mam tej informacji w bazie"
+- zero halucynacji
 """
         }
     ]
@@ -304,7 +288,6 @@ ZASADY:
         "content": context + "\n\n" + q.question
     })
 
-    # 🔥 FIX (brakowało tego)
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=messages
@@ -312,41 +295,29 @@ ZASADY:
 
     answer = response.choices[0].message.content
 
-    # 📊 SCORING
-    score = 0
-    if len(answer) > 20: score += 1
-    if "Nie mam" not in answer: score += 1
-
-    requests.post(
-        f"{SUPABASE_URL}/rest/v1/ai_logs",
-        headers=HEADERS,
-        json={
-            "client_id": client_id,
-            "question": q.question,
-            "answer": answer,
-            "score": score
-        }
-    )
-
     save_message(client_id, q.session_id, "assistant", answer)
 
     return {"answer": answer}
 
 # =========================
-# 💳 STRIPE CHECKOUT
+# 💳 STRIPE CHECKOUT (FIX)
 # =========================
-
 @app.post("/create-checkout")
 def create_checkout(user=Depends(get_current_user)):
     try:
         client_id = user["id"]
         price_id = os.getenv("STRIPE_PRICE_ID")
+
+        if not price_id:
+            raise Exception("❌ STRIPE_PRICE_ID missing")
+
         print("🔥 PRICE FROM ENV:", price_id)
+
         session = stripe.checkout.Session.create(
             payment_method_types=["card"],
             mode="subscription",
             line_items=[{
-                "price": os.getenv("STRIPE_PRICE_ID"),  # 🔥 z ENV
+                "price": price_id,
                 "quantity": 1
             }],
             success_url="https://web-production-1de94.up.railway.app",
@@ -361,18 +332,24 @@ def create_checkout(user=Depends(get_current_user)):
         return {"error": str(e)}
 
 # =========================
-# 🔔 STRIPE WEBHOOK
+# 🔔 STRIPE WEBHOOK (SECURE)
 # =========================
 @app.post("/webhook")
 async def stripe_webhook(request: Request):
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
 
+    endpoint_secret = STRIPE_WEBHOOK_SECRET
+
+    if not endpoint_secret:
+        print("❌ NO WEBHOOK SECRET")
+        return {"error": "no secret"}
+
     try:
         event = stripe.Webhook.construct_event(
             payload,
             sig_header,
-            STRIPE_WEBHOOK_SECRET
+            endpoint_secret
         )
     except Exception as e:
         print("❌ WEBHOOK ERROR:", e)
@@ -380,7 +357,6 @@ async def stripe_webhook(request: Request):
 
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
-
         client_id = session["metadata"]["client_id"]
 
         requests.post(
