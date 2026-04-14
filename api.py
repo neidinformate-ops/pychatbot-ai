@@ -82,6 +82,55 @@ def get_plan(client_id):
     return "free"
 
 # =========================
+# 📊 USAGE TRACKING
+# =========================
+def get_usage(client_id):
+    today = datetime.now().date()
+
+    res = requests.get(
+        f"{SUPABASE_URL}/rest/v1/usage",
+        headers=HEADERS,
+        params={
+            "client_id": f"eq.{client_id}",
+            "date": f"eq.{today}"
+        }
+    ).json()
+
+    if res:
+        return res[0]["requests"]
+
+    return 0
+
+
+def increment_usage(client_id):
+    today = datetime.now().date()
+
+    current = get_usage(client_id)
+
+    if current == 0:
+        requests.post(
+            f"{SUPABASE_URL}/rest/v1/usage",
+            headers=HEADERS,
+            json={
+                "client_id": client_id,
+                "date": str(today),
+                "requests": 1
+            }
+        )
+    else:
+        requests.patch(
+            f"{SUPABASE_URL}/rest/v1/usage",
+            headers=HEADERS,
+            params={
+                "client_id": f"eq.{client_id}",
+                "date": f"eq.{today}"
+            },
+            json={
+                "requests": current + 1
+            }
+        )
+
+# =========================
 # 🔥 MULTI TENANT
 # =========================
 def resolve_client_id(user=None, x_client_id: str = None):
@@ -230,7 +279,7 @@ class Question(BaseModel):
     session_id: Optional[str] = "default"
 
 # =========================
-# 🤖 CHAT (STRICT RAG + LIMIT)
+# 🤖 CHAT (STRICT RAG + LIMIT + USAGE)
 # =========================
 @app.post("/ask")
 def ask(q: Question, user=Depends(get_current_user), x_client_id: str = Header(None)):
@@ -240,11 +289,12 @@ def ask(q: Question, user=Depends(get_current_user), x_client_id: str = Header(N
 
     plan = get_plan(client_id)
 
-    # 🔥 LIMIT SYSTEM
+    # 🔥 USAGE LIMIT
     if plan == "free":
-        history = get_history(client_id, q.session_id)
-        if len(history) > 5:
-            return {"answer": "🔒 Limit darmowego planu. Przejdź na PRO."}
+        usage = get_usage(client_id)
+
+        if usage >= 20:
+            return {"answer": "🔒 Wykorzystałeś dzienny limit. Przejdź na PRO."}
 
     save_message(client_id, q.session_id, "user", q.question)
 
@@ -295,12 +345,15 @@ ZASADY:
 
     answer = response.choices[0].message.content
 
+    # 🔥 ZLICZANIE USAGE
+    increment_usage(client_id)
+
     save_message(client_id, q.session_id, "assistant", answer)
 
     return {"answer": answer}
 
 # =========================
-# 💳 STRIPE CHECKOUT (FIX)
+# 💳 STRIPE CHECKOUT
 # =========================
 @app.post("/create-checkout")
 def create_checkout(user=Depends(get_current_user)):
@@ -332,7 +385,7 @@ def create_checkout(user=Depends(get_current_user)):
         return {"error": str(e)}
 
 # =========================
-# 🔔 STRIPE WEBHOOK (SECURE)
+# 🔔 STRIPE WEBHOOK (FULL SYNC)
 # =========================
 @app.post("/webhook")
 async def stripe_webhook(request: Request):
@@ -355,6 +408,7 @@ async def stripe_webhook(request: Request):
         print("❌ WEBHOOK ERROR:", e)
         return {"error": "invalid"}
 
+    # 🔥 PAYMENT SUCCESS
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
         client_id = session["metadata"]["client_id"]
@@ -369,5 +423,23 @@ async def stripe_webhook(request: Request):
         )
 
         print("🔥 USER UPGRADED:", client_id)
+
+    # 🔥 DOWNGRADE
+    if event["type"] in ["customer.subscription.deleted", "invoice.payment_failed"]:
+        sub = event["data"]["object"]
+
+        client_id = sub.get("metadata", {}).get("client_id")
+
+        if client_id:
+            requests.post(
+                f"{SUPABASE_URL}/rest/v1/subscriptions",
+                headers=HEADERS,
+                json={
+                    "client_id": client_id,
+                    "plan": "free"
+                }
+            )
+
+            print("⚠️ USER DOWNGRADED:", client_id)
 
     return {"ok": True}
