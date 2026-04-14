@@ -340,7 +340,8 @@ ZASADY:
 def create_checkout(user=Depends(get_current_user)):
     try:
         client_id = user["id"]
-
+        price_id = os.getenv("STRIPE_PRICE_ID")
+        print("🔥 PRICE FROM ENV:", price_id)
         session = stripe.checkout.Session.create(
             payment_method_types=["card"],
             mode="subscription",
