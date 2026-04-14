@@ -10,3 +10,4 @@ PyJWT
 email-validator
 python-multipart
 PyJWT==2.8.0
+stripe
