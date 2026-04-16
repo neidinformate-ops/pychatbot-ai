@@ -44,7 +44,7 @@ app.add_middleware(
 logging.basicConfig(level=logging.INFO)
 
 # =========================
-# 🔐 SECURITY
+# SECURITY
 # =========================
 LOGIN_ATTEMPTS = {}
 IP_RATE = {}
@@ -142,7 +142,7 @@ def create_api_key(client_id):
     return key
 
 def get_client_by_api_key(api_key):
-    if not api_key:
+    if not api_key or len(api_key) < 10:
         return None
 
     res = requests.get(
@@ -228,6 +228,7 @@ def login(data: LoginData):
         raise HTTPException(401)
 
     return {"token": create_token(user["id"])}
+
 @app.post("/register")
 def register(data: LoginData):
     existing = get_user(data.email)
@@ -237,16 +238,88 @@ def register(data: LoginData):
 
     user = create_user(data.email, data.password)
 
-    return {
-        "ok": True,
-        "user": user["email"]
-    }
+    return {"ok": True, "user": user["email"]}
+
 # =========================
-# API KEY
+# API KEYS ENDPOINTS
 # =========================
 @app.post("/create-api-key")
 def create_key(user=Depends(get_current_user)):
     return {"api_key": create_api_key(user["id"])}
+
+@app.get("/api-keys")
+def list_api_keys(user=Depends(get_current_user)):
+    client_id = user["id"]
+
+    res = requests.get(
+        f"{SUPABASE_URL}/rest/v1/api_keys",
+        headers=HEADERS,
+        params={"client_id": f"eq.{client_id}"}
+    )
+
+    return res.json()
+
+@app.delete("/api-key/{kid}")
+def delete_api_key(kid: str, user=Depends(get_current_user)):
+    client_id = user["id"]
+
+    requests.delete(
+        f"{SUPABASE_URL}/rest/v1/api_keys",
+        headers=HEADERS,
+        params={
+            "id": f"eq.{kid}",
+            "client_id": f"eq.{client_id}"
+        }
+    )
+
+    return {"ok": True}
+
+# =========================
+# KNOWLEDGE ENDPOINTS
+# =========================
+@app.get("/knowledge")
+def list_knowledge(user=Depends(get_current_user)):
+    client_id = user["id"]
+
+    res = requests.get(
+        f"{SUPABASE_URL}/rest/v1/knowledge",
+        headers=HEADERS,
+        params={"client_id": f"eq.{client_id}"}
+    )
+
+    return res.json()
+
+@app.delete("/knowledge/{kid}")
+def delete_knowledge(kid: str, user=Depends(get_current_user)):
+    client_id = user["id"]
+
+    requests.delete(
+        f"{SUPABASE_URL}/rest/v1/knowledge",
+        headers=HEADERS,
+        params={
+            "id": f"eq.{kid}",
+            "client_id": f"eq.{client_id}"
+        }
+    )
+
+    return {"ok": True}
+
+# =========================
+# CLIENT DATA
+# =========================
+@app.get("/client-data")
+def client_data(user=Depends(get_current_user)):
+    client_id = user["id"]
+
+    plan = get_plan(client_id)
+    usage = get_usage(client_id)
+    limit = get_limit(plan)
+
+    return {
+        "plan": plan,
+        "usage": usage,
+        "limit": limit
+    }
 
 # =========================
 # CHAT
@@ -294,6 +367,17 @@ def ask(q: Question, request: Request, user=Depends(get_current_user), x_api_key
 
     answer = response.choices[0].message.content
 
+    requests.post(
+        f"{SUPABASE_URL}/rest/v1/ai_logs",
+        headers=HEADERS,
+        json={
+            "client_id": client_id,
+            "question": q.question,
+            "answer": answer,
+            "score": 1
+        }
+    )
+
     increment_usage(client_id)
     save_message(client_id, q.session_id, "assistant", answer)
 
@@ -329,7 +413,6 @@ async def webhook(request: Request):
     sig = request.headers.get("stripe-signature")
 
     if not STRIPE_WEBHOOK_SECRET:
-        print("❌ Missing webhook secret")
         return {"error": "no webhook secret"}
 
     try:
@@ -338,8 +421,7 @@ async def webhook(request: Request):
             sig,
             STRIPE_WEBHOOK_SECRET
         )
-    except Exception as e:
-        print("❌ Webhook verification failed:", e)
+    except Exception:
         return {"error": "invalid webhook"}
 
     if event["type"] == "checkout.session.completed":
