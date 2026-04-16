@@ -441,6 +441,12 @@ def create_checkout(user=Depends(get_current_user)):
                 "quantity": 1,
             }],
             mode="subscription",
+
+            # 🔥 KLUCZOWE
+            metadata={
+                "client_id": user["id"]  # lub user["email"] jeśli tak masz
+            },
+
             success_url="http://localhost:5173/dashboard?success=true",
             cancel_url="http://localhost:5173/dashboard?canceled=true",
         )
