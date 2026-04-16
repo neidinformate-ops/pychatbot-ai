@@ -430,30 +430,23 @@ def setup_client(data: dict, user=Depends(get_current_user)):
 # =========================
 @app.post("/create-checkout")
 def create_checkout(user=Depends(get_current_user)):
-    client_id = user["id"]
+    try:
+        session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            line_items=[{
+                "price": STRIPE_PRICE_ID,
+                "quantity": 1,
+            }],
+            mode="subscription",
+            success_url="http://localhost:5173/dashboard?success=true",
+            cancel_url="http://localhost:5173/dashboard?canceled=true",
+        )
 
-    session = stripe.checkout.Session.create(
-        payment_method_types=["card"],
-        line_items=[{
-            "price": STRIPE_PRICE_ID,
-            "quantity": 1,
-        }],
-        mode="subscription",
-        success_url="http://localhost:5173/dashboard?success=true",
-        cancel_url="http://localhost:5173/dashboard?canceled=true",
-    )
-        payment_method_types=["card"],
-        mode="subscription",
-        line_items=[{
-            "price": os.getenv("STRIPE_PRICE_ID"),
-            "quantity": 1
-        }],
-        success_url="https://web-production-1de94.up.railway.app",
-        cancel_url="https://web-production-1de94.up.railway.app",
-        metadata={"client_id": client_id}
-    )
+        return {"url": session.url}
 
-    return {"url": session.url}
+    except Exception as e:
+        print("🔥 STRIPE ERROR:", str(e))
+        raise HTTPException(status_code=500, detail="Stripe error")
 
 # =========================
 # WEBHOOK
