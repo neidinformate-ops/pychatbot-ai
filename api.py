@@ -402,7 +402,29 @@ def ask(q: Question, request: Request, user=Depends(get_current_user), x_api_key
     save_message(client_id, q.session_id, "assistant", answer)
 
     return {"answer": answer}
+@app.post("/client/setup")
+def setup_client(data: dict, user=Depends(get_current_user)):
+    try:
+        client_id = user["id"]
+        text = data.get("text", "")
 
+        if not text:
+            return {"status": "empty"}
+
+        requests.post(
+            f"{SUPABASE_URL}/rest/v1/knowledge",
+            headers=HEADERS,
+            json={
+                "client_id": client_id,
+                "content": text
+            }
+        )
+
+        return {"status": "ok"}
+
+    except Exception as e:
+        print("🔥 SETUP ERROR:", str(e))
+        return {"status": "error"}
 # =========================
 # STRIPE
 # =========================
