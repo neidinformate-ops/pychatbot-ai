@@ -101,15 +101,35 @@ def get_limit(plan):
 # USAGE
 # =========================
 def get_usage(client_id):
-    today = str(datetime.now().date())
+    try:
+        today = str(datetime.now().date())
 
-    res = requests.get(
-        f"{SUPABASE_URL}/rest/v1/usage",
-        headers=HEADERS,
-        params={"client_id": f"eq.{client_id}", "date": f"eq.{today}"}
-    ).json()
+        response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/usage",
+            headers=HEADERS,
+            params={
+                "client_id": f"eq.{client_id}",
+                "date": f"eq.{today}"
+            }
+        )
 
-    return res[0]["requests"] if res else 0
+        if response.status_code != 200:
+            print("🔥 SUPABASE ERROR:", response.text)
+            return 0
+
+        data = response.json()
+
+        # 🔥 KLUCZOWE — musi być lista
+        if not isinstance(data, list) or len(data) == 0:
+            return 0
+
+        value = data[0].get("requests", 0)
+
+        return value if isinstance(value, int) else 0
+
+    except Exception as e:
+        print("🔥 USAGE CRASH:", str(e))
+        return 0
 
 def increment_usage(client_id):
     today = str(datetime.now().date())
