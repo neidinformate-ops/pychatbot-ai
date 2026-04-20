@@ -192,3 +192,25 @@ def get_user_by_id(user_id: str):
         return data[0]
     except:
         return None
+
+def get_user_by_reset_token(token: str):
+        try:
+            res = requests.get(
+                f"{SUPABASE_URL}/rest/v1/users",
+                headers=HEADERS,
+                params={
+                    "reset_token": f"eq.{token}",
+                    "select": "*"
+                }
+            )
+
+            if res.status_code != 200:
+                return None
+
+            data = res.json()
+            if not data:
+                return None
+
+            return data[0]
+        except:
+            return None
