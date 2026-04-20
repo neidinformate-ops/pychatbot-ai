@@ -204,7 +204,7 @@ def send_reset_email(email: str, token: str):
 # =========================
 @app.post("/register")
 def register(data: LoginData):
-    email = data.email.strip().to_lowercase() if hasattr(data.email, 'to_lowercase') else data.email.strip().lower()
+    email = data.email.strip().lower()
 
     if get_user(email):
         raise HTTPException(400, "User exists")

@@ -65,6 +65,7 @@ def get_user(email: str):
 
 def create_user(email: str, password: str):
     from bcrypt import hashpw, gensalt
+    import uuid
 
     email = email.strip().lower()
 
@@ -74,6 +75,7 @@ def create_user(email: str, password: str):
     hashed_password = hashpw(password.encode(), gensalt()).decode()
 
     user = {
+        "id": str(uuid.uuid4()),  # 🔥 KLUCZOWE
         "email": email,
         "password": hashed_password,
         "email_verified": False,
@@ -87,6 +89,7 @@ def create_user(email: str, password: str):
     )
 
     if res.status_code not in (200, 201):
+        print("SUPABASE ERROR:", res.text)  # 🔥 DEBUG
         raise ValueError(f"user_create_failed: {res.text}")
 
     created = get_user(email)
