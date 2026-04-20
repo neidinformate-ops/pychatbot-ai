@@ -8,6 +8,7 @@ import stripe
 import uuid
 import bcrypt
 
+from resend import Resend
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -38,8 +39,13 @@ STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_PRICE_ID = os.getenv("STRIPE_PRICE_ID")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+
 client = OpenAI(api_key=OPENAI_API_KEY)
 stripe.api_key = STRIPE_SECRET_KEY
+
+resend = Resend(os.getenv("RESEND_API_KEY"))
+FROM_EMAIL = "onboarding@resend.dev"
 
 HEADERS = {
     "apikey": SUPABASE_KEY,
@@ -68,6 +74,10 @@ class LoginData(BaseModel):
 
 class VerifyData(BaseModel):
     token: str
+
+class ResetData(BaseModel):
+    token: str
+    password: str
 
 class Question(BaseModel):
     question: str
@@ -155,6 +165,35 @@ def get_knowledge(client_id):
         return []
 
 # =========================
+# EMAILS (FIXED)
+# =========================
+def send_verification_email(email: str, token: str):
+    link = f"{FRONTEND_URL}/verify?token={token}"
+
+    resend.emails.send({
+        "from": FROM_EMAIL,
+        "to": email,
+        "subject": "Aktywuj konto GSOB",
+        "html": f"""
+        <h2>Witaj 🚀</h2>
+        <a href="{link}">Aktywuj konto</a>
+        """
+    })
+
+def send_reset_email(email: str, token: str):
+    link = f"{FRONTEND_URL}/reset-password?token={token}"
+
+    resend.emails.send({
+        "from": FROM_EMAIL,
+        "to": email,
+        "subject": "Reset hasła",
+        "html": f"""
+        <h2>Reset hasła</h2>
+        <a href="{link}">Resetuj hasło</a>
+        """
+    })
+
+# =========================
 # AUTH
 # =========================
 @app.post("/register")
@@ -164,7 +203,7 @@ def register(data: LoginData):
     if get_user(email):
         raise HTTPException(400, "User exists")
 
-    user = create_user(email, data.password)
+    create_user(email, data.password)
 
     verify_token = str(uuid.uuid4())
 
@@ -172,10 +211,10 @@ def register(data: LoginData):
         "verify_token": verify_token
     })
 
-    return {
-        "ok": True,
-        "verify_url": f"http://localhost:5173/verify?token={verify_token}"
-    }
+    send_verification_email(email, verify_token)
+
+    return {"ok": True}
+
 
 @app.post("/verify-email")
 def verify_email(data: VerifyData):
@@ -190,6 +229,69 @@ def verify_email(data: VerifyData):
     })
 
     return {"status": "verified"}
+
+
+@app.post("/resend-verification")
+def resend_verification(data: LoginData):
+    email = data.email.strip().lower()
+
+    user = get_user(email)
+
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    if user.get("email_verified"):
+        return {"ok": True}
+
+    verify_token = str(uuid.uuid4())
+
+    update_user_by_email(email, {
+        "verify_token": verify_token
+    })
+
+    send_verification_email(email, verify_token)
+
+    return {"ok": True}
+
+
+@app.post("/forgot-password")
+def forgot_password(data: LoginData):
+    email = data.email.strip().lower()
+
+    user = get_user(email)
+
+    if not user:
+        return {"ok": True}
+
+    reset_token = str(uuid.uuid4())
+
+    update_user_by_email(email, {
+        "reset_token": reset_token
+    })
+
+    send_reset_email(email, reset_token)
+
+    return {"ok": True}
+
+
+@app.post("/reset-password")
+def reset_password(data: ResetData):
+    token = data.token
+
+    user = get_user_by_verify_token(token)
+
+    if not user:
+        raise HTTPException(400, "Invalid token")
+
+    hashed = bcrypt.hashpw(data.password.encode(), bcrypt.gensalt()).decode()
+
+    update_user_by_token(token, {
+        "password": hashed,
+        "reset_token": None
+    })
+
+    return {"ok": True}
+
 
 @app.post("/login")
 def login(data: LoginData):
@@ -215,10 +317,12 @@ def login(data: LoginData):
 def client_data(user=Depends(get_current_user)):
     client_id = user["id"]
 
+    plan = get_plan(client_id)
+
     return {
-        "plan": get_plan(client_id),
+        "plan": plan,
         "usage": get_usage(client_id),
-        "limit": get_limit(get_plan(client_id))
+        "limit": get_limit(plan)
     }
 
 # =========================
@@ -257,12 +361,13 @@ def create_checkout(user=Depends(get_current_user)):
         mode="subscription",
         payment_method_types=["card"],
         line_items=[{"price": STRIPE_PRICE_ID, "quantity": 1}],
-        success_url="http://localhost:5173/dashboard",
-        cancel_url="http://localhost:5173/dashboard",
+        success_url=f"{FRONTEND_URL}/dashboard",
+        cancel_url=f"{FRONTEND_URL}/dashboard",
         metadata={"client_id": user["id"]}
     )
 
     return {"url": session.url}
+
 
 @app.post("/webhook")
 async def webhook(request: Request):
