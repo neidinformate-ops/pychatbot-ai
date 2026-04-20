@@ -6,25 +6,8 @@ import requests
 import stripe
 import uuid
 import bcrypt
-
 import resend
 import os
-
-RESEND_API_KEY = os.getenv("RESEND_API_KEY")
-
-resend.api_key = RESEND_API_KEY
-
-
-def send_email(to_email: str, subject: str, html: str):
-    try:
-        resend.Emails.send({
-            "from": "onboarding@resend.dev",
-            "to": to_email,
-            "subject": subject,
-            "html": html
-        })
-    except Exception as e:
-        print("EMAIL ERROR:", e)
 
 from datetime import datetime, timedelta
 from typing import Optional
@@ -42,12 +25,16 @@ from auth import (
     get_current_user,
     update_user_by_email,
     get_user_by_verify_token,
-    update_user_by_token
+    update_user_by_token,
+    get_user_by_reset_token
 )
 
 # =========================
 # CONFIG
 # =========================
+RESEND_API_KEY = os.getenv("RESEND_API_KEY")
+resend.api_key = RESEND_API_KEY
+
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -69,6 +56,9 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
+# =========================
+# APP
+# =========================
 app = FastAPI()
 
 app.add_middleware(
@@ -181,16 +171,19 @@ def get_knowledge(client_id):
         return []
 
 # =========================
-# EMAILS (FIXED)
+# EMAILS
 # =========================
 def send_verification_email(email: str, token: str):
     link = f"{FRONTEND_URL}/verify?token={token}"
 
     resend.Emails.send({
-        "from": "onboarding@resend.dev",
+        "from": FROM_EMAIL,
         "to": email,
         "subject": "Verify your email",
-        "html": "<strong>Hello world</strong>"
+        "html": f"""
+        <h2>Weryfikacja email</h2>
+        <a href="{link}">Kliknij aby zweryfikować</a>
+        """
     })
 
 def send_reset_email(email: str, token: str):
@@ -211,7 +204,7 @@ def send_reset_email(email: str, token: str):
 # =========================
 @app.post("/register")
 def register(data: LoginData):
-    email = data.email.strip().lower()
+    email = data.email.strip().to_lowercase() if hasattr(data.email, 'to_lowercase') else data.email.strip().lower()
 
     if get_user(email):
         raise HTTPException(400, "User exists")
