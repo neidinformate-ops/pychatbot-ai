@@ -1,14 +1,31 @@
 # =========================
 # IMPORTS
 # =========================
-import os
 import logging
 import requests
 import stripe
 import uuid
 import bcrypt
 
-from resend import Resend
+import resend
+import os
+
+RESEND_API_KEY = os.getenv("RESEND_API_KEY")
+
+resend.api_key = RESEND_API_KEY
+
+
+def send_email(to_email: str, subject: str, html: str):
+    try:
+        resend.Emails.send({
+            "from": "onboarding@resend.dev",
+            "to": to_email,
+            "subject": subject,
+            "html": html
+        })
+    except Exception as e:
+        print("EMAIL ERROR:", e)
+
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -44,7 +61,6 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 client = OpenAI(api_key=OPENAI_API_KEY)
 stripe.api_key = STRIPE_SECRET_KEY
 
-resend = Resend(os.getenv("RESEND_API_KEY"))
 FROM_EMAIL = "onboarding@resend.dev"
 
 HEADERS = {
@@ -170,20 +186,17 @@ def get_knowledge(client_id):
 def send_verification_email(email: str, token: str):
     link = f"{FRONTEND_URL}/verify?token={token}"
 
-    resend.emails.send({
-        "from": FROM_EMAIL,
+    resend.Emails.send({
+        "from": "onboarding@resend.dev",
         "to": email,
-        "subject": "Aktywuj konto GSOB",
-        "html": f"""
-        <h2>Witaj 🚀</h2>
-        <a href="{link}">Aktywuj konto</a>
-        """
+        "subject": "Verify your email",
+        "html": "<strong>Hello world</strong>"
     })
 
 def send_reset_email(email: str, token: str):
     link = f"{FRONTEND_URL}/reset-password?token={token}"
 
-    resend.emails.send({
+    resend.Emails.send({
         "from": FROM_EMAIL,
         "to": email,
         "subject": "Reset hasła",
@@ -278,7 +291,7 @@ def forgot_password(data: LoginData):
 def reset_password(data: ResetData):
     token = data.token
 
-    user = get_user_by_verify_token(token)
+    user = get_user_by_reset_token(token)
 
     if not user:
         raise HTTPException(400, "Invalid token")
