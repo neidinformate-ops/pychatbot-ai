@@ -8,14 +8,15 @@ import uuid
 import bcrypt
 import resend
 import os
+import requests
 
 from datetime import datetime, timedelta
 from typing import Optional
-
+from app.services.usage_service import check_limit, increment_usage
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-
+from app.services.usage_service import check_limit, get_usage, get_limit
 from openai import OpenAI
 
 from auth import (
@@ -77,6 +78,7 @@ logging.basicConfig(level=logging.INFO)
 class LoginData(BaseModel):
     email: str
     password: str
+    captcha_token: str
 
 class VerifyData(BaseModel):
     token: str
@@ -89,6 +91,10 @@ class Question(BaseModel):
     question: str
     session_id: Optional[str] = "default"
 
+class PublicQuestion(BaseModel):
+    question: str
+    client_id: str
+    session_id: Optional[str] = "default"
 # =========================
 # RATE LIMIT
 # =========================
@@ -108,52 +114,19 @@ def check_rate_limit(client_id):
 
     RATE_LIMIT[client_id].append(now)
 
-# =========================
-# PLAN + USAGE
-# =========================
-def get_plan(client_id):
-    try:
-        res = requests.get(
-            f"{SUPABASE_URL}/rest/v1/subscriptions",
-            headers=HEADERS,
-            params={"client_id": f"eq.{client_id}"}
-        )
+def verify_captcha(token: str):
+    res = requests.post(
+        "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+        data={
+            "secret": os.getenv("TURNSTILE_SECRET"),
+            "response": token
+        }
+    )
 
-        data = res.json()
-        if not data:
-            return "free"
+    data = res.json()
 
-        return data[0].get("plan", "free")
-    except:
-        return "free"
-
-def get_limit(plan):
-    return {
-        "free": 10,
-        "pro": 200,
-        "business": 999999
-    }.get(plan, 10)
-
-def get_usage(client_id):
-    try:
-        today = str(datetime.now().date())
-
-        res = requests.get(
-            f"{SUPABASE_URL}/rest/v1/usage",
-            headers=HEADERS,
-            params={
-                "client_id": f"eq.{client_id}",
-                "date": f"eq.{today}"
-            }
-        )
-
-        data = res.json()
-        if not data:
-            return 0
-
-        return data[0].get("requests", 0)
-    except:
-        return 0
+    if not data.get("success"):
+        raise HTTPException(status_code=400, detail="Captcha failed")
 
 # =========================
 # KNOWLEDGE
@@ -204,6 +177,8 @@ def send_reset_email(email: str, token: str):
 # =========================
 @app.post("/register")
 def register(data: LoginData):
+    verify_captcha(data.captcha_token)
+
     email = data.email.strip().lower()
 
     if get_user(email):
@@ -301,6 +276,8 @@ def reset_password(data: ResetData):
 
 @app.post("/login")
 def login(data: LoginData):
+    verify_captcha(data.captcha_token)
+
     email = data.email.strip().lower()
 
     user = get_user(email)
@@ -317,46 +294,132 @@ def login(data: LoginData):
     return {"token": create_token(user["id"])}
 
 # =========================
-# CLIENT DATA
+# CLIENT DATA (POPRAWIONE)
 # =========================
 @app.get("/client-data")
 def client_data(user=Depends(get_current_user)):
     client_id = user["id"]
 
-    plan = get_plan(client_id)
+    try:
+        # 🔥 usage + plan (z usage_service)
+        data = check_limit(client_id)
 
-    return {
-        "plan": plan,
-        "usage": get_usage(client_id),
-        "limit": get_limit(plan)
-    }
+        return {
+            "id": client_id,
+            "email": user["email"],
+            "plan": data["plan"],
+            "usage": data["usage"],
+            "limit": data["limit"],
+            "status": "active"
+        }
+
+    except HTTPException as e:
+        # LIMIT case → dalej zwracamy dane
+        if e.detail == "LIMIT_REACHED":
+            data = {
+                "plan": "free",
+                "usage": get_usage(client_id),
+                "limit": get_limit("free")
+            }
+
+            return {
+                "id": client_id,
+                "email": user["email"],
+                "plan": data["plan"],
+                "usage": data["usage"],
+                "limit": data["limit"],
+                "status": "limit_reached"
+            }
+
+        raise e
 
 # =========================
-# CHAT
+# CHAT (FINAL VERSION)
 # =========================
 @app.post("/ask")
 def ask(q: Question, user=Depends(get_current_user)):
     client_id = user["id"]
 
+    # 1. RATE LIMIT (anti spam)
     check_rate_limit(client_id)
 
-    if get_usage(client_id) >= get_limit(get_plan(client_id)):
-        return {"error": "LIMIT"}
+    # 2. BUSINESS LIMIT (usage $$$)
+    check_limit(client_id)
 
+    # 3. KNOWLEDGE
     context = "\n".join(get_knowledge(client_id)[:5])
 
     if not context:
         return {"answer": "❌ Brak danych"}
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": "Odpowiadaj krótko i konkretnie"},
-            {"role": "user", "content": f"{context}\n\n{q.question}"}
-        ]
-    )
+    try:
+        # 4. AI RESPONSE
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Odpowiadaj krótko i konkretnie"},
+                {"role": "user", "content": f"{context}\n\n{q.question}"}
+            ]
+        )
 
-    return {"answer": response.choices[0].message.content}
+        answer = response.choices[0].message.content
+
+        # 5. INCREMENT (TYLKO PO SUKCESIE)
+        increment_usage(client_id)
+
+        return {"answer": answer}
+
+    except Exception as e:
+        logging.error(f"AI ERROR: {e}")
+        raise HTTPException(500, "AI_ERROR")
+
+# =========================
+# PUBLIC CHAT (WIDGET)
+# =========================
+@app.post("/ask-public")
+def ask_public(q: PublicQuestion):
+    client_id = q.client_id
+
+    if not client_id:
+        raise HTTPException(400, "Missing client_id")
+
+    # 1. RATE LIMIT (widget spam protection)
+    check_rate_limit(client_id)
+
+    # 2. BUSINESS LIMIT
+    try:
+        check_limit(client_id)
+    except HTTPException as e:
+        if e.detail == "LIMIT_REACHED":
+            raise HTTPException(403, "LIMIT_REACHED")
+        raise e
+
+    # 3. KNOWLEDGE
+    context = "\n".join(get_knowledge(client_id)[:5])
+
+    if not context:
+        return {"answer": "❌ Brak danych"}
+
+    try:
+        # 4. AI RESPONSE
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Odpowiadaj krótko i konkretnie"},
+                {"role": "user", "content": f"{context}\n\n{q.question}"}
+            ]
+        )
+
+        answer = response.choices[0].message.content
+
+        # 5. INCREMENT
+        increment_usage(client_id)
+
+        return {"answer": answer}
+
+    except Exception as e:
+        logging.error(f"PUBLIC AI ERROR: {e}")
+        raise HTTPException(500, "AI_ERROR")
 
 # =========================
 # STRIPE
@@ -384,19 +447,60 @@ async def webhook(request: Request):
         event = stripe.Webhook.construct_event(
             payload, sig, STRIPE_WEBHOOK_SECRET
         )
-    except:
+    except Exception as e:
+        logging.error(f"Webhook error: {e}")
         return {"error": "invalid"}
 
+    # =========================
+    # CHECKOUT COMPLETED
+    # =========================
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
-        client_id = session.get("metadata", {}).get("client_id")
 
+        client_id = session.get("metadata", {}).get("client_id")
+        subscription_id = session.get("subscription")
+
+        if not client_id:
+            return {"error": "no client_id"}
+
+        # pobierz dane subskrypcji ze Stripe
+        sub = stripe.Subscription.retrieve(subscription_id)
+
+        current_period_end = datetime.fromtimestamp(sub.current_period_end)
+
+        # UPSERT DO SUPABASE
+        requests.post(
+            f"{SUPABASE_URL}/rest/v1/subscriptions",
+            headers={
+                **HEADERS,
+                "Prefer": "resolution=merge-duplicates"
+            },
+            json={
+                "client_id": client_id,
+                "plan": "pro",
+                "status": "active",
+                "current_period_end": current_period_end.isoformat(),
+                "stripe_subscription_id": subscription_id
+            }
+        )
+
+    # =========================
+    # SUBSCRIPTION CANCELED
+    # =========================
+    if event["type"] == "customer.subscription.deleted":
+        sub = event["data"]["object"]
+
+        subscription_id = sub.get("id")
+
+        # ustaw status = canceled
         requests.patch(
             f"{SUPABASE_URL}/rest/v1/subscriptions",
             headers=HEADERS,
+            params={
+                "stripe_subscription_id": f"eq.{subscription_id}"
+            },
             json={
-                "client_id": client_id,
-                "plan": "pro"
+                "status": "canceled"
             }
         )
 
