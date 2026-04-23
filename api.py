@@ -430,13 +430,12 @@ def create_checkout(user=Depends(get_current_user)):
         mode="subscription",
         payment_method_types=["card"],
         line_items=[{"price": STRIPE_PRICE_ID, "quantity": 1}],
-        success_url=f"{FRONTEND_URL}/dashboard",
-        cancel_url=f"{FRONTEND_URL}/dashboard",
+        success_url=f"{FRONTEND_URL}/success?session_id={{CHECKOUT_SESSION_ID}}",
+        cancel_url=f"{FRONTEND_URL}/cancel",
         metadata={"client_id": user["id"]}
     )
 
     return {"url": session.url}
-
 
 @app.post("/webhook")
 async def webhook(request: Request):
