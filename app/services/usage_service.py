@@ -39,20 +39,12 @@ def get_limit(plan: str) -> int:
 
 
 def get_usage(client_id: str) -> int:
-    today = get_today()
 
-    url = f"{SUPABASE_URL}/rest/v1/usage?client_id=eq.{client_id}&date=eq.{today}"
-    res = requests.get(url, headers=HEADERS)
+    #
+    # TEMP FIX
+    #
 
-    if res.status_code != 200:
-        raise HTTPException(status_code=500, detail="Usage fetch failed")
-
-    data = res.json()
-
-    if not data:
-        return 0
-
-    return data[0]["requests"]
+    return 0
 
 
 def check_limit(client_id: str):
@@ -71,6 +63,12 @@ def check_limit(client_id: str):
 
 
 def increment_usage(client_id: str):
+
+    #
+    # TEMP FIX
+    #
+
+    return
     today = get_today()
 
     # UPSERT → atomic increment
