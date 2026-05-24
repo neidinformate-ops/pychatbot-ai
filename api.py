@@ -78,7 +78,7 @@ logging.basicConfig(level=logging.INFO)
 class LoginData(BaseModel):
     email: str
     password: str
-    captcha_token: str
+    captcha_token: str | None = None
 
 class VerifyData(BaseModel):
     token: str
@@ -114,7 +114,10 @@ def check_rate_limit(client_id):
 
     RATE_LIMIT[client_id].append(now)
 
-def verify_captcha(token: str):
+def verify_captcha(token: str | None):
+    if not token:
+        return
+
     res = requests.post(
         "https://challenges.cloudflare.com/turnstile/v0/siteverify",
         data={
