@@ -25,18 +25,13 @@ def get_today():
 
 
 def get_user_plan(client_id: str) -> str:
-    url = f"{SUPABASE_URL}/rest/v1/users?id=eq.{client_id}"
-    res = requests.get(url, headers=HEADERS)
 
-    if res.status_code != 200:
-        raise HTTPException(status_code=500, detail="User fetch failed")
+    #
+    # TEMP FIX
+    # zawsze free
+    #
 
-    data = res.json()
-
-    if not data:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    return data[0].get("plan", "free")
+    return "free"
 
 
 def get_limit(plan: str) -> int:
