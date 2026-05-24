@@ -332,53 +332,51 @@ def login(data: LoginData):
     }
 
 # =========================
-# CLIENT DATA (POPRAWIONE)
+# CLIENT DATA
 # =========================
 @app.get("/client-data")
 def client_data(user=Depends(get_current_user)):
     print("CLIENT DATA HIT")
 
-    # =========================
-    # CLIENT DATA
-    # =========================
-    @app.get("/client-data")
-    def client_data(user=Depends(get_current_user)):
-        print("CLIENT DATA HIT")
-
         client_id = user["id"]
 
         try:
 
-            data = check_limit(client_id)
+            #
+            # 🔥 SAFE LIMIT CHECK
+            #
+            try:
+                data = check_limit(client_id)
+
+                plan = data.get("plan", "free")
+                usage = data.get("usage", 0)
+                limit = data.get("limit", 10)
+
+            except:
+
+                plan = "free"
+                usage = 0
+                limit = 10
 
             return {
                 "id": client_id,
-                "email": user["email"],
-                "plan": data["plan"],
-                "usage": data["usage"],
-                "limit": data["limit"],
+                "email": user.get("email", ""),
+                "plan": plan,
+                "usage": usage,
+                "limit": limit,
                 "status": "active"
             }
 
-        except HTTPException as e:
+        except Exception as e:
 
-            if e.detail == "LIMIT_REACHED":
-                data = {
-                    "plan": "free",
-                    "usage": get_usage(client_id),
-                    "limit": get_limit("free")
-                }
+            logging.error(
+                f"CLIENT DATA ERROR: {e}"
+            )
 
-                return {
-                    "id": client_id,
-                    "email": user["email"],
-                    "plan": data["plan"],
-                    "usage": data["usage"],
-                    "limit": data["limit"],
-                    "status": "limit_reached"
-                }
-
-            raise e
+            raise HTTPException(
+                status_code=500,
+                detail="CLIENT_DATA_ERROR"
+            )
 # =========================
 # CHAT (FINAL VERSION)
 # =========================
