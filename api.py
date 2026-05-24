@@ -66,7 +66,6 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
-        "https://twoj-frontend.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
