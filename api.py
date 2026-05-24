@@ -2,13 +2,13 @@
 # IMPORTS
 # =========================
 import logging
-import requests
 import stripe
 import uuid
 import bcrypt
 import resend
 import os
 import requests
+from bs4 import BeautifulSoup
 
 from datetime import datetime, timedelta
 from typing import Optional
@@ -97,6 +97,9 @@ class PublicQuestion(BaseModel):
     question: str
     client_id: str
     session_id: Optional[str] = "default"
+
+class ScrapeRequest(BaseModel):
+    url: str
 # =========================
 # RATE LIMIT
 # =========================
@@ -414,6 +417,97 @@ def ask_public(q: PublicQuestion):
         logging.error(f"PUBLIC AI ERROR: {e}")
         raise HTTPException(500, "AI_ERROR")
 
+# =========================
+# WEBSITE SCRAPING
+# =========================
+@app.post("/scrape-website")
+def scrape_website(
+    data: ScrapeRequest,
+    user=Depends(get_current_user)
+):
+    client_id = user["id"]
+
+    try:
+
+        #
+        # 🔥 FETCH WEBSITE
+        #
+        response = requests.get(
+            data.url,
+            timeout=15,
+            headers={
+                "User-Agent":
+                "Mozilla/5.0"
+            }
+        )
+
+        html = response.text
+
+        #
+        # 🔥 PARSE HTML
+        #
+        soup = BeautifulSoup(
+            html,
+            "lxml"
+        )
+
+        #
+        # 🔥 REMOVE JUNK
+        #
+        for tag in soup([
+            "script",
+            "style",
+            "noscript",
+            "iframe"
+        ]):
+            tag.decompose()
+
+        #
+        # 🔥 EXTRACT TEXT
+        #
+        text = soup.get_text(
+            separator=" ",
+            strip=True
+        )
+
+        #
+        # 🔥 LIMIT SIZE
+        #
+        text = text[:15000]
+
+        if len(text) < 100:
+            raise HTTPException(
+                400,
+                "Website contains insufficient content"
+            )
+
+        #
+        # 🔥 SAVE TO SUPABASE
+        #
+        requests.post(
+            f"{SUPABASE_URL}/rest/v1/knowledge",
+            headers=HEADERS,
+            json={
+                "client_id": client_id,
+                "content": text
+            }
+        )
+
+        return {
+            "success": True,
+            "chars": len(text)
+        }
+
+    except Exception as e:
+
+        logging.error(
+            f"SCRAPE ERROR: {e}"
+        )
+
+        raise HTTPException(
+            500,
+            "SCRAPE_FAILED"
+        )
 # =========================
 # STRIPE
 # =========================
