@@ -448,7 +448,47 @@ def ask(q: Question, user=Depends(get_current_user)):
                 {
                     "role": "system",
                     "content":
-                    "Odpowiadaj krót
+                    "Odpowiadaj krotko i konkretnie."
+                },
+
+                {
+                    "role": "user",
+                    "content":
+                    f"{context}\n\n{q.question}"
+                }
+            ]
+        )
+
+        answer = (
+            response
+            .choices[0]
+            .message
+            .content
+        )
+
+        #
+        # INCREMENT USAGE
+        #
+        increment_usage(client_id)
+
+        return {
+            "answer": answer
+        }
+
+    except Exception as e:
+
+        import traceback
+
+        traceback.print_exc()
+
+        print("FULL ERROR:", str(e))
+
+        raise HTTPException(
+            status_code=500,
+            detail="AI_ERROR"
+        )
+
+
 
 # =========================
 # PUBLIC CHAT (WIDGET)
