@@ -316,41 +316,50 @@ def login(data: LoginData):
 # =========================
 @app.get("/client-data")
 def client_data(user=Depends(get_current_user)):
-    client_id = user["id"]
-
     try:
-        # 🔥 usage + plan (z usage_service)
+        client_id = user["id"]
+
+        # 🔥 SAFE CHECK
         data = check_limit(client_id)
 
         return {
             "id": client_id,
-            "email": user["email"],
-            "plan": data["plan"],
-            "usage": data["usage"],
-            "limit": data["limit"],
+            "email": user.get("email", ""),
+            "plan": data.get("plan", "free"),
+            "usage": data.get("usage", 0),
+            "limit": data.get("limit", 10),
             "status": "active"
         }
 
     except HTTPException as e:
-        # LIMIT case → dalej zwracamy dane
+
+        # 🔥 LIMIT CASE
         if e.detail == "LIMIT_REACHED":
-            data = {
-                "plan": "free",
-                "usage": get_usage(client_id),
-                "limit": get_limit("free")
-            }
+
+            client_id = user["id"]
 
             return {
                 "id": client_id,
-                "email": user["email"],
-                "plan": data["plan"],
-                "usage": data["usage"],
-                "limit": data["limit"],
+                "email": user.get("email", ""),
+                "plan": "free",
+                "usage": get_usage(client_id),
+                "limit": get_limit("free"),
                 "status": "limit_reached"
             }
 
         raise e
 
+    except Exception as e:
+        print("CLIENT DATA ERROR:", str(e))
+
+        return {
+            "id": user.get("id", ""),
+            "email": user.get("email", ""),
+            "plan": "free",
+            "usage": 0,
+            "limit": 10,
+            "status": "active"
+        }
 # =========================
 # CHAT (FINAL VERSION)
 # =========================
