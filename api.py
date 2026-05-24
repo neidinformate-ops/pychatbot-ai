@@ -207,13 +207,10 @@ def register(data: LoginData):
 
     create_user(email, data.password)
 
-    verify_token = str(uuid.uuid4())
-
     update_user_by_email(email, {
-        "verify_token": verify_token
+        "email_verified": True,
+        "verify_token": None
     })
-
-    send_verification_email(email, verify_token)
 
     return {"ok": True}
 
@@ -309,8 +306,8 @@ def login(data: LoginData):
     if not bcrypt.checkpw(data.password.encode(), user["password"].encode()):
         raise HTTPException(401)
 
-    if not user.get("email_verified"):
-        raise HTTPException(403, "Email not verified")
+    # if not user.get("email_verified"):
+    #     raise HTTPException(403, "Email not verified")
 
     return {"token": create_token(user["id"])}
 
