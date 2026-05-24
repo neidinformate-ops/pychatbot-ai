@@ -352,16 +352,13 @@ def ask(q: Question, user=Depends(get_current_user)):
     knowledge = get_knowledge(client_id)
 
     context = "\n".join(
-        [
-            item["content"]
-            for item in knowledge[:5]
-            if item.get("content")
-        ]
+        knowledge[:5]
     )
 
     if not context:
         return {
-            "answer": "❌ Brak danych treningowych"
+            "answer":
+            "❌ Brak danych treningowych"
         }
 
     try:
@@ -377,7 +374,8 @@ def ask(q: Question, user=Depends(get_current_user)):
                     "role": "system",
                     "content": (
                         "Odpowiadaj krótko, "
-                        "konkretnie i na podstawie danych."
+                        "konkretnie i na podstawie "
+                        "dostarczonych danych."
                     )
                 },
 
@@ -408,6 +406,10 @@ def ask(q: Question, user=Depends(get_current_user)):
         }
 
     except Exception as e:
+
+        import traceback
+
+        traceback.print_exc()
 
         logging.error(
             f"AI ERROR: {e}"
