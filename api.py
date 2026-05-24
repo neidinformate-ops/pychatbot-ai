@@ -343,6 +343,8 @@ def client_data(user=Depends(get_current_user)):
     # =========================
     @app.get("/client-data")
     def client_data(user=Depends(get_current_user)):
+        print("CLIENT DATA HIT")
+
         client_id = user["id"]
 
         try:
@@ -376,8 +378,7 @@ def client_data(user=Depends(get_current_user)):
                     "status": "limit_reached"
                 }
 
-            raise e,
-    }
+            raise e
 # =========================
 # CHAT (FINAL VERSION)
 # =========================
