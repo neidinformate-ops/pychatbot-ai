@@ -46,7 +46,14 @@ STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
-client = OpenAI(api_key=OPENAI_API_KEY)
+if not OPENAI_API_KEY:
+    raise Exception(
+        "Missing OPENAI_API_KEY"
+    )
+
+client = OpenAI(
+    api_key=OPENAI_API_KEY
+)
 stripe.api_key = STRIPE_SECRET_KEY
 
 FROM_EMAIL = "onboarding@resend.dev"
@@ -144,7 +151,14 @@ def verify_captcha(token: str | None):
 
         return True
 
+
     except Exception as e:
+
+        import traceback
+
+        traceback.print_exc()
+
+        print("FULL AI ERROR:", str(e))
         logging.error(f"Captcha error: {e}")
 
         raise HTTPException(
