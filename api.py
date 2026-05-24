@@ -326,7 +326,10 @@ def login(data: LoginData):
     # if not user.get("email_verified"):
     #     raise HTTPException(403, "Email not verified")
 
-    return {"token": create_token(user["id"])}
+    return {
+        "access_token": create_token(user["id"]),
+        "token_type": "bearer"
+    }
 
 # =========================
 # CLIENT DATA (POPRAWIONE)
@@ -335,13 +338,45 @@ def login(data: LoginData):
 def client_data(user=Depends(get_current_user)):
     print("CLIENT DATA HIT")
 
-    return {
-        "id": "test",
-        "email": "test@test.com",
-        "plan": "free",
-        "usage": 0,
-        "limit": 10,
-        "status": "active"
+    # =========================
+    # CLIENT DATA
+    # =========================
+    @app.get("/client-data")
+    def client_data(user=Depends(get_current_user)):
+        client_id = user["id"]
+
+        try:
+
+            data = check_limit(client_id)
+
+            return {
+                "id": client_id,
+                "email": user["email"],
+                "plan": data["plan"],
+                "usage": data["usage"],
+                "limit": data["limit"],
+                "status": "active"
+            }
+
+        except HTTPException as e:
+
+            if e.detail == "LIMIT_REACHED":
+                data = {
+                    "plan": "free",
+                    "usage": get_usage(client_id),
+                    "limit": get_limit("free")
+                }
+
+                return {
+                    "id": client_id,
+                    "email": user["email"],
+                    "plan": data["plan"],
+                    "usage": data["usage"],
+                    "limit": data["limit"],
+                    "status": "limit_reached"
+                }
+
+            raise e,
     }
 # =========================
 # CHAT (FINAL VERSION)
