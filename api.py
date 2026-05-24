@@ -336,38 +336,87 @@ def client_data(user=Depends(get_current_user)):
 def ask(q: Question, user=Depends(get_current_user)):
     client_id = user["id"]
 
-    # 1. RATE LIMIT (anti spam)
+    #
+    # 1. RATE LIMIT
+    #
     check_rate_limit(client_id)
 
-    # 2. BUSINESS LIMIT (usage $$$)
+    #
+    # 2. BUSINESS LIMIT
+    #
     check_limit(client_id)
 
+    #
     # 3. KNOWLEDGE
-    context = "\n".join(get_knowledge(client_id)[:5])
+    #
+    knowledge = get_knowledge(client_id)
+
+    context = "\n".join(
+        [
+            item["content"]
+            for item in knowledge[:5]
+            if item.get("content")
+        ]
+    )
 
     if not context:
-        return {"answer": "❌ Brak danych"}
+        return {
+            "answer": "❌ Brak danych treningowych"
+        }
 
     try:
+
+        #
         # 4. AI RESPONSE
+        #
         response = client.chat.completions.create(
             model="gpt-4o-mini",
+
             messages=[
-                {"role": "system", "content": "Odpowiadaj krótko i konkretnie"},
-                {"role": "user", "content": f"{context}\n\n{q.question}"}
+                {
+                    "role": "system",
+                    "content": (
+                        "Odpowiadaj krótko, "
+                        "konkretnie i na podstawie danych."
+                    )
+                },
+
+                {
+                    "role": "user",
+                    "content": (
+                        f"KNOWLEDGE:\n{context}\n\n"
+                        f"QUESTION:\n{q.question}"
+                    )
+                }
             ]
         )
 
-        answer = response.choices[0].message.content
+        answer = (
+            response
+            .choices[0]
+            .message
+            .content
+        )
 
-        # 5. INCREMENT (TYLKO PO SUKCESIE)
+        #
+        # 5. INCREMENT USAGE
+        #
         increment_usage(client_id)
 
-        return {"answer": answer}
+        return {
+            "answer": answer
+        }
 
     except Exception as e:
-        logging.error(f"AI ERROR: {e}")
-        raise HTTPException(500, "AI_ERROR")
+
+        logging.error(
+            f"AI ERROR: {e}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="AI_ERROR"
+        )
 
 # =========================
 # PUBLIC CHAT (WIDGET)
