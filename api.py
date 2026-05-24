@@ -394,95 +394,61 @@ def client_data(user=Depends(get_current_user)):
             detail="CLIENT_DATA_ERROR"
         )
 # =========================
-# CHAT (FINAL VERSION)
+# CHAT
 # =========================
 @app.post("/ask")
 def ask(q: Question, user=Depends(get_current_user)):
-    client_id = user["id"]
 
-    #
-    # 1. RATE LIMIT
-    #
-    check_rate_limit(client_id)
-
-    #
-    # 2. BUSINESS LIMIT
-    #
-    check_limit(client_id)
-
-    #
-    # 3. KNOWLEDGE
-    #
-    knowledge = get_knowledge(client_id)
-
-    context = "\n".join(
-        knowledge[:5]
-    )
-
-    if not context:
-        return {
-            "answer":
-            "❌ Brak danych treningowych"
-        }
+    print("ASK HIT")
 
     try:
 
+        client_id = user["id"]
+
+        print("CLIENT:", client_id)
+
         #
-        # 4. AI RESPONSE
+        # RATE LIMIT
+        #
+        check_rate_limit(client_id)
+
+        #
+        # USAGE LIMIT
+        #
+        check_limit(client_id)
+
+        #
+        # KNOWLEDGE
+        #
+        knowledge = get_knowledge(client_id)
+
+        print("KNOWLEDGE:", knowledge)
+
+        context = "\n".join(
+            knowledge[:5]
+        )
+
+        print("CONTEXT:", context)
+
+        if not context:
+
+            return {
+                "answer":
+                "❌ Brak danych treningowych"
+            }
+
+        #
+        # OPENAI REQUEST
         #
         response = client.chat.completions.create(
+
             model="gpt-4o-mini",
 
             messages=[
                 {
                     "role": "system",
-                    "content": (
-                        "Odpowiadaj krótko, "
-                        "konkretnie i na podstawie "
-                        "dostarczonych danych."
-                    )
-                },
-
-                {
-                    "role": "user",
-                    "content": (
-                        f"KNOWLEDGE:\n{context}\n\n"
-                        f"QUESTION:\n{q.question}"
-                    )
-                }
-            ]
-        )
-
-        answer = (
-            response
-            .choices[0]
-            .message
-            .content
-        )
-
-        #
-        # 5. INCREMENT USAGE
-        #
-        increment_usage(client_id)
-
-        return {
-            "answer": answer
-        }
-
-    except Exception as e:
-
-        import traceback
-
-        traceback.print_exc()
-
-        logging.error(
-            f"AI ERROR: {e}"
-        )
-
-        raise HTTPException(
-            status_code=500,
-            detail="AI_ERROR"
-        )
+                    "content":
+                    "Odpowiadaj krót
 
 # =========================
 # PUBLIC CHAT (WIDGET)
