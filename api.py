@@ -145,7 +145,7 @@ def verify_captcha(token: str | None):
         raise HTTPException(
             status_code=500,
             detail="Captcha service error"
-        ))
+        )
 
 # =========================
 # KNOWLEDGE
