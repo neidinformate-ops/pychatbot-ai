@@ -115,21 +115,37 @@ def check_rate_limit(client_id):
     RATE_LIMIT[client_id].append(now)
 
 def verify_captcha(token: str | None):
+    # 🔥 DEV MODE — captcha disabled
     if not token:
-        return
+        return True
 
-    res = requests.post(
-        "https://challenges.cloudflare.com/turnstile/v0/siteverify",
-        data={
-            "secret": os.getenv("TURNSTILE_SECRET"),
-            "response": token
-        }
-    )
+    try:
+        res = requests.post(
+            "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+            data={
+                "secret": os.getenv("TURNSTILE_SECRET"),
+                "response": token
+            },
+            timeout=10
+        )
 
-    data = res.json()
+        data = res.json()
 
-    if not data.get("success"):
-        raise HTTPException(status_code=400, detail="Captcha failed")
+        if not data.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail="Captcha failed"
+            )
+
+        return True
+
+    except Exception as e:
+        logging.error(f"Captcha error: {e}")
+
+        raise HTTPException(
+            status_code=500,
+            detail="Captcha service error"
+        ))
 
 # =========================
 # KNOWLEDGE
