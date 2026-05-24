@@ -316,50 +316,16 @@ def login(data: LoginData):
 # =========================
 @app.get("/client-data")
 def client_data(user=Depends(get_current_user)):
-    try:
-        client_id = user["id"]
+    print("CLIENT DATA HIT")
 
-        # 🔥 SAFE CHECK
-        data = check_limit(client_id)
-
-        return {
-            "id": client_id,
-            "email": user.get("email", ""),
-            "plan": data.get("plan", "free"),
-            "usage": data.get("usage", 0),
-            "limit": data.get("limit", 10),
-            "status": "active"
-        }
-
-    except HTTPException as e:
-
-        # 🔥 LIMIT CASE
-        if e.detail == "LIMIT_REACHED":
-
-            client_id = user["id"]
-
-            return {
-                "id": client_id,
-                "email": user.get("email", ""),
-                "plan": "free",
-                "usage": get_usage(client_id),
-                "limit": get_limit("free"),
-                "status": "limit_reached"
-            }
-
-        raise e
-
-    except Exception as e:
-        print("CLIENT DATA ERROR:", str(e))
-
-        return {
-            "id": user.get("id", ""),
-            "email": user.get("email", ""),
-            "plan": "free",
-            "usage": 0,
-            "limit": 10,
-            "status": "active"
-        }
+    return {
+        "id": "test",
+        "email": "test@test.com",
+        "plan": "free",
+        "usage": 0,
+        "limit": 10,
+        "status": "active"
+    }
 # =========================
 # CHAT (FINAL VERSION)
 # =========================
