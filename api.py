@@ -336,47 +336,63 @@ def login(data: LoginData):
 # =========================
 @app.get("/client-data")
 def client_data(user=Depends(get_current_user)):
+
     print("CLIENT DATA HIT")
 
-        client_id = user["id"]
+    client_id = user["id"]
 
+    try:
+
+        #
+        # SAFE LIMIT CHECK
+        #
         try:
 
-            #
-            # 🔥 SAFE LIMIT CHECK
-            #
-            try:
-                data = check_limit(client_id)
+            data = check_limit(client_id)
 
-                plan = data.get("plan", "free")
-                usage = data.get("usage", 0)
-                limit = data.get("limit", 10)
-
-            except:
-
-                plan = "free"
-                usage = 0
-                limit = 10
-
-            return {
-                "id": client_id,
-                "email": user.get("email", ""),
-                "plan": plan,
-                "usage": usage,
-                "limit": limit,
-                "status": "active"
-            }
-
-        except Exception as e:
-
-            logging.error(
-                f"CLIENT DATA ERROR: {e}"
+            plan = data.get(
+                "plan",
+                "free"
             )
 
-            raise HTTPException(
-                status_code=500,
-                detail="CLIENT_DATA_ERROR"
+            usage = data.get(
+                "usage",
+                0
             )
+
+            limit = data.get(
+                "limit",
+                10
+            )
+
+        except:
+
+            plan = "free"
+            usage = 0
+            limit = 10
+
+        return {
+            "id": client_id,
+            "email": user.get(
+                "email",
+                ""
+            ),
+            "plan": plan,
+            "usage": usage,
+            "limit": limit,
+            "status": "active"
+        }
+
+    except Exception as e:
+
+        logging.error(
+            f"CLIENT DATA ERROR: {e}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="CLIENT_DATA_ERROR"
+        )
 # =========================
 # CHAT (FINAL VERSION)
 # =========================
