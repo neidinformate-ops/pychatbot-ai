@@ -697,22 +697,41 @@ def ask_public(q: PublicQuestion):
         raise e
 
     # 3. KNOWLEDGE
-    context = "\n".join(get_knowledge(client_id)[:5])
+    context = "\n".join(
+        get_knowledge(client_id)[:5]
+    )
 
     if not context:
-        return {"answer": "❌ Brak danych"}
+        return {
+            "answer": "❌ Brak danych"
+        }
 
     try:
+
         # 4. AI RESPONSE
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=messages
-                {"role": "system", "content": "Odpowiadaj krótko i konkretnie"},
-                {"role": "user", "content": f"{context}\n\n{q.question}"}
+
+            messages=[
+                {
+                    "role": "system",
+                    "content":
+                        "Odpowiadaj krótko i konkretnie"
+                },
+                {
+                    "role": "user",
+                    "content":
+                        f"{context}\n\n{q.question}"
+                }
             ]
         )
 
-        answer = response.choices[0].message.content
+        answer = (
+            response
+            .choices[0]
+            .message
+            .content
+        )
 
         # 5. INCREMENT
         increment_usage(client_id)
