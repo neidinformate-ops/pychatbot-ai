@@ -657,23 +657,55 @@ def ask(q: Question, user=Depends(get_current_user)):
         #
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-
-            messages=[
-                {
-                    "role": "system",
-                    "content":
-                        "Odpowiadaj krotko i konkretnie"
-                },
-
-                {
-                    "role": "user",
-                    "content":
-                        f"{context}\n\n{q.question}"
-                }
-            ]
+            messages=messages
         )
 
+        answer = (
+            response
+            .choices[0]
+            .message
+            .content
+        )
 
+        #
+        # SAVE USER MESSAGE
+        #
+        save_message(
+            client_id,
+            q.session_id,
+            "user",
+            q.question
+        )
+
+        #
+        # SAVE AI MESSAGE
+        #
+        save_message(
+            client_id,
+            q.session_id,
+            "assistant",
+            answer
+        )
+
+        #
+        # INCREMENT USAGE
+        #
+        # increment_usage(client_id)
+
+        return {
+            "answer": answer
+        }
+
+    except Exception as e:
+
+        logging.error(
+            f"AI ERROR: {e}"
+        )
+
+        raise HTTPException(
+            500,
+            "AI_ERROR"
+        )
 
 # =========================
 # PUBLIC CHAT (WIDGET)
