@@ -9,6 +9,7 @@ import resend
 import os
 import requests
 from bs4 import BeautifulSoup
+import math
 
 from datetime import datetime, timedelta
 from typing import Optional
@@ -393,6 +394,157 @@ def client_data(user=Depends(get_current_user)):
             status_code=500,
             detail="CLIENT_DATA_ERROR"
         )
+
+# =========================
+# COSINE SIMILARITY
+# =========================
+def cosine_similarity(a, b):
+
+        dot = sum(x * y for x, y in zip(a, b))
+
+        norm_a = math.sqrt(
+            sum(x * x for x in a)
+        )
+
+        norm_b = math.sqrt(
+            sum(x * x for x in b)
+        )
+
+        if norm_a == 0 or norm_b == 0:
+            return 0
+
+        return dot / (norm_a * norm_b)
+
+# =========================
+# SEMANTIC SEARCH
+# =========================
+def semantic_search(
+    client_id: str,
+    question: str,
+    top_k: int = 5
+):
+
+    #
+    # QUESTION EMBEDDING
+    #
+    question_embedding = create_embedding(
+        question
+    )
+
+    #
+    # FETCH KNOWLEDGE
+    #
+    res = requests.get(
+        f"{SUPABASE_URL}/rest/v1/knowledge",
+
+        headers=HEADERS,
+
+        params={
+            "client_id":
+            f"eq.{client_id}"
+        }
+    )
+
+    knowledge = res.json()
+
+    #
+    # SCORE CHUNKS
+    #
+    scored = []
+
+    for item in knowledge:
+
+        embedding = item.get(
+            "embedding"
+        )
+
+        if not embedding:
+            continue
+
+        score = cosine_similarity(
+            question_embedding,
+            embedding
+        )
+
+        scored.append({
+            "content":
+            item["content"],
+
+            "score":
+            score
+        })
+
+    #
+    # SORT
+    #
+    scored.sort(
+        key=lambda x: x["score"],
+        reverse=True
+    )
+
+    #
+    # TOP RESULTS
+    #
+    return scored[:top_k]
+
+# =========================
+# SAVE MESSAGE
+# =========================
+def save_message(
+    client_id: str,
+    session_id: str,
+    role: str,
+    content: str
+):
+
+    requests.post(
+        f"{SUPABASE_URL}/rest/v1/conversations",
+
+        headers=HEADERS,
+
+        json={
+            "client_id": client_id,
+            "session_id": session_id,
+            "role": role,
+            "content": content
+        }
+    )
+
+# =========================
+# GET MEMORY
+# =========================
+def get_memory(
+    client_id: str,
+    session_id: str,
+    limit: int = 6
+):
+
+    res = requests.get(
+        f"{SUPABASE_URL}/rest/v1/conversations",
+
+        headers=HEADERS,
+
+        params={
+            "client_id":
+            f"eq.{client_id}",
+
+            "session_id":
+            f"eq.{session_id}",
+
+            "order":
+            "created_at.desc",
+
+            "limit":
+            limit
+        }
+    )
+
+    messages = res.json()
+
+    messages.reverse()
+
+    return messages
+
 # =========================
 # CHAT
 # =========================
@@ -415,77 +567,110 @@ def ask(q: Question, user=Depends(get_current_user)):
         #
         # USAGE LIMIT
         #
-        check_limit(client_id)
+        # check_limit(client_id)
 
         #
         # KNOWLEDGE
         #
-        knowledge = get_knowledge(client_id)
-
-        print("KNOWLEDGE:", knowledge)
-
-        context = "\n".join(
-            knowledge[:5]
+        results = semantic_search(
+            client_id,
+            q.question
         )
+
+        context = "\n".join([
+            r["content"]
+            for r in results
+        ])
+
+        print("SEMANTIC RESULTS:", results)
 
         print("CONTEXT:", context)
 
         if not context:
+            #
+            # SAVE USER MESSAGE
+            #
+            save_message(
+                client_id,
+                q.session_id,
+                "user",
+                q.question
+            )
+
+            #
+            # SAVE AI MESSAGE
+            #
+            save_message(
+                client_id,
+                q.session_id,
+                "assistant",
+                "Brak danych treningowych"
+            )
 
             return {
                 "answer":
-                "❌ Brak danych treningowych"
+                    "❌ Brak danych treningowych"
             }
+
+        #
+        # MEMORY
+        #
+        memory = get_memory(
+            client_id,
+            q.session_id
+        )
+
+        messages = [
+            {
+                "role": "system",
+                "content":
+                    "Odpowiadaj krotko i konkretnie."
+            }
+        ]
+
+        #
+        # MEMORY MESSAGES
+        #
+        for msg in memory:
+            messages.append({
+                "role": msg["role"],
+                "content": msg["content"]
+            })
+
+        #
+        # KNOWLEDGE + QUESTION
+        #
+        messages.append({
+            "role": "user",
+            "content":
+                f"""
+            KNOWLEDGE:
+            {context}
+
+            QUESTION:
+            {q.question}
+            """
+        })
 
         #
         # OPENAI REQUEST
         #
         response = client.chat.completions.create(
-
             model="gpt-4o-mini",
 
             messages=[
                 {
                     "role": "system",
                     "content":
-                    "Odpowiadaj krotko i konkretnie."
+                        "Odpowiadaj krotko i konkretnie"
                 },
 
                 {
                     "role": "user",
                     "content":
-                    f"{context}\n\n{q.question}"
+                        f"{context}\n\n{q.question}"
                 }
             ]
-        )
-
-        answer = (
-            response
-            .choices[0]
-            .message
-            .content
-        )
-
-        #
-        # INCREMENT USAGE
-        #
-        increment_usage(client_id)
-
-        return {
-            "answer": answer
-        }
-
-    except Exception as e:
-
-        import traceback
-
-        traceback.print_exc()
-
-        print("FULL ERROR:", str(e))
-
-        raise HTTPException(
-            status_code=500,
-            detail="AI_ERROR"
         )
 
 
@@ -505,7 +690,7 @@ def ask_public(q: PublicQuestion):
 
     # 2. BUSINESS LIMIT
     try:
-        check_limit(client_id)
+        pass
     except HTTPException as e:
         if e.detail == "LIMIT_REACHED":
             raise HTTPException(403, "LIMIT_REACHED")
@@ -521,7 +706,7 @@ def ask_public(q: PublicQuestion):
         # 4. AI RESPONSE
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[
+            messages=messages
                 {"role": "system", "content": "Odpowiadaj krótko i konkretnie"},
                 {"role": "user", "content": f"{context}\n\n{q.question}"}
             ]
@@ -537,6 +722,42 @@ def ask_public(q: PublicQuestion):
     except Exception as e:
         logging.error(f"PUBLIC AI ERROR: {e}")
         raise HTTPException(500, "AI_ERROR")
+
+# =========================
+# CHUNKING
+# =========================
+def chunk_text(
+            text: str,
+            chunk_size: int = 1000,
+            overlap: int = 200
+    ):
+
+        chunks = []
+
+        start = 0
+
+        while start < len(text):
+            end = start + chunk_size
+
+            chunk = text[start:end]
+
+            chunks.append(chunk)
+
+            start += chunk_size - overlap
+
+        return chunks
+
+# =========================
+# EMBEDDINGS
+# =========================
+def create_embedding(text: str):
+
+    response = client.embeddings.create(
+        model="text-embedding-3-small",
+        input=text
+    )
+
+    return response.data[0].embedding
 
 # =========================
 # WEBSITE SCRAPING
@@ -603,16 +824,27 @@ def scrape_website(
             )
 
         #
-        # 🔥 SAVE TO SUPABASE
+        # 🔥 CHUNK TEXT
         #
-        requests.post(
-            f"{SUPABASE_URL}/rest/v1/knowledge",
-            headers=HEADERS,
-            json={
-                "client_id": client_id,
-                "content": text
-            }
-        )
+        chunks = chunk_text(text)
+
+        #
+        # 🔥 SAVE CHUNKS
+        #
+        for chunk in chunks:
+            embedding = create_embedding(
+                chunk
+            )
+
+            requests.post(
+                f"{SUPABASE_URL}/rest/v1/knowledge",
+                headers=HEADERS,
+                json={
+                    "client_id": client_id,
+                    "content": chunk,
+                    "embedding": embedding
+                }
+            )
 
         return {
             "success": True,
