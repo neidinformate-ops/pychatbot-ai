@@ -332,6 +332,63 @@ def login(data: LoginData):
         "token_type": "bearer"
     }
 
+class WidgetQuestion(BaseModel):
+    client_id: str
+    question: str
+
+
+@app.post("/widget/ask")
+def widget_ask(data: WidgetQuestion):
+
+    try:
+
+        client_id = data.client_id
+        question = data.question
+
+        #
+        # 🔥 KNOWLEDGE
+        #
+        context = "\n".join(
+            get_knowledge(client_id)[:5]
+        )
+
+        if not context:
+            return {
+                "answer": "Brak danych knowledge base."
+            }
+
+        #
+        # 🔥 AI RESPONSE
+        #
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Odpowiadaj krótko i konkretnie."
+                },
+                {
+                    "role": "user",
+                    "content": f"{context}\n\n{question}"
+                }
+            ]
+        )
+
+        answer = response.choices[0].message.content
+
+        return {
+            "answer": answer
+        }
+
+    except Exception as e:
+
+        print("WIDGET ERROR:", e)
+
+        raise HTTPException(
+            status_code=500,
+            detail="WIDGET_AI_ERROR"
+        )
+
 # =========================
 # CLIENT DATA
 # =========================
@@ -544,6 +601,42 @@ def get_memory(
     messages.reverse()
 
     return messages
+
+@app.post("/widget/ask")
+def widget_ask(data: dict):
+
+    client_id = data.get("client_id")
+    question = data.get("question")
+
+    if not client_id:
+        raise HTTPException(400, "Missing client_id")
+
+    context = "\n".join(get_knowledge(client_id)[:5])
+
+    if not context:
+        return {
+            "answer": "Brak danych."
+        }
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": "Odpowiadaj krótko i konkretnie."
+            },
+            {
+                "role": "user",
+                "content": f"{context}\n\n{question}"
+            }
+        ]
+    )
+
+    answer = response.choices[0].message.content
+
+    return {
+        "answer": answer
+    }
 
 # =========================
 # CHAT
