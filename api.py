@@ -781,6 +781,12 @@ def ask(q: Question, user=Depends(get_current_user)):
 @app.post("/ask-public")
 def ask_public(q: PublicQuestion):
     client_id = q.client_id
+    save_message(
+        client_id,
+        q.session_id,
+        "user",
+        q.question
+    )
 
     if not client_id:
         raise HTTPException(400, "Missing client_id")
@@ -832,6 +838,13 @@ def ask_public(q: PublicQuestion):
             .message
             .content
         )
+        save_message(
+            client_id,
+            q.session_id,
+            "assistant",
+            answer
+        )
+
 
         # 5. INCREMENT
         increment_usage(client_id)
