@@ -21,6 +21,39 @@
   const position =
     config.position || "right";
 
+  let settings = {
+  color,
+  name,
+  position,
+};
+
+async function loadAppearance() {
+
+  try {
+
+    const res = await fetch(
+      API_URL +
+      "/widget/appearance/" +
+      clientId
+    );
+
+    const data =
+      await res.json();
+
+    settings = {
+      ...settings,
+      ...data,
+    };
+
+  } catch (err) {
+
+    console.error(
+      "Appearance load error",
+      err
+    );
+  }
+}
+
   if (!clientId) {
     console.error(
       "❌ Brak clientId w CHATBOT_CONFIG"
@@ -46,10 +79,10 @@
     #chatbot-button {
       position: fixed;
       bottom: 20px;
-      ${side}: 20px;
+      ${settings.position === "left" ? "left" : "right"}: 20px;
       width: 60px;
       height: 60px;
-      background: ${color};
+      background: ${settings.color};
       color: white;
       border-radius: 50%;
       display: flex;
@@ -64,21 +97,26 @@
     #chatbot-box {
       position: fixed;
       bottom: 90px;
-      ${side}: 20px;
+      ${settings.position === "left" ? "left" : "right"}: 20px;
       width: 340px;
       height: 520px;
-      background: #111827;
+      background:
+        settings.dark_mode
+          ? "#111827"
+          : "#ffffff";
       border-radius: 16px;
       overflow: hidden;
       z-index: 999999;
       display: none;
       flex-direction: column;
       box-shadow: 0 10px 30px rgba(0,0,0,0.4);
-      font-family: sans-serif;
+      font-family:
+        ${settings.font},
+        sans-serif;
     }
 
     #chatbot-header {
-      background: ${color};
+      background: ${settings.color};
       color: white;
       padding: 16px;
       font-weight: bold;
@@ -98,13 +136,18 @@
       border-radius: 12px;
       max-width: 80%;
       font-size: 14px;
-      color: white;
+      color:
+  ${
+    settings.dark_mode
+      ? "white"
+      : "#111"
+  };
       line-height: 1.5;
     }
 
     .chatbot-user {
       align-self: flex-end;
-      background: ${color};
+      background: ${settings.color};
     }
 
     .chatbot-ai {
@@ -132,7 +175,7 @@
 
     #chatbot-send {
       border: none;
-      background: ${color};
+      background: ${settings.color};
       color: white;
       padding: 0 18px;
       border-radius: 10px;
@@ -150,7 +193,8 @@
     document.createElement("div");
 
   button.id = "chatbot-button";
-  button.innerHTML = "💬";
+  button.innerHTML =
+  settings.launcher_icon || "💬";
 
   const box =
     document.createElement("div");
@@ -161,7 +205,8 @@
     document.createElement("div");
 
   header.id = "chatbot-header";
-  header.innerText = name;
+  header.innerText =
+  settings.name;
 
   const messages =
     document.createElement("div");
@@ -196,6 +241,15 @@
 
   document.body.appendChild(button);
   document.body.appendChild(box);
+  if (
+  settings.welcome_message
+) {
+
+  addMessage(
+    settings.welcome_message,
+    "ai"
+  );
+}
 
   // =========================
   // TOGGLE
@@ -235,6 +289,25 @@
     return el;
   }
 
+  //
+// 💾 SESSION
+//
+let sessionId =
+  localStorage.getItem(
+    "chatbot_session"
+  );
+
+if (!sessionId) {
+
+  sessionId =
+    crypto.randomUUID();
+
+  localStorage.setItem(
+    "chatbot_session",
+    sessionId
+  );
+}
+
   // =========================
   // SEND MESSAGE
   // =========================
@@ -265,9 +338,8 @@
           body: JSON.stringify({
             question: text,
             client_id: clientId,
+            session_id: sessionId,
           }),
-        }
-      );
 
       const data =
         await res.json();
@@ -299,4 +371,15 @@
     }
   );
 
+async function start() {
+
+  await loadAppearance();
+
+  console.log(
+    "APPEARANCE:",
+    settings
+  );
+}
+
+start();
 })();
