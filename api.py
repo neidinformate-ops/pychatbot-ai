@@ -506,7 +506,7 @@ def semantic_search(
     )
 
     knowledge = res.json()
-
+    print("KNOWLEDGE:", knowledge)
     #
     # SCORE CHUNKS
     #
@@ -517,6 +517,7 @@ def semantic_search(
         embedding = item.get(
             "embedding"
         )
+        print("EMBEDDING:", embedding)
 
         if not embedding:
             continue
