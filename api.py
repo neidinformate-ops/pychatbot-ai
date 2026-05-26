@@ -1,6 +1,10 @@
 # =========================
 # IMPORTS
 # =========================
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
+
 import logging
 import stripe
 import uuid
@@ -37,6 +41,7 @@ RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 resend.api_key = RESEND_API_KEY
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+print("ACTIVE KEY:", OPENAI_API_KEY)
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
