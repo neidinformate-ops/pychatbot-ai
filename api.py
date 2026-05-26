@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from app.services.usage_service import check_limit, get_usage, get_limit
 from openai import OpenAI
-
+from fastapi.responses import FileResponse
 from auth import (
     create_user,
     create_token,
@@ -878,6 +878,12 @@ def create_embedding(text: str):
 
     return response.data[0].embedding
 
+@app.get("/widget.js")
+def get_widget_script():
+    return FileResponse(
+        "widget.js",
+        media_type="application/javascript"
+    )
 # =========================
 # WEBSITE SCRAPING
 # =========================
