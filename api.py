@@ -103,6 +103,25 @@ class Question(BaseModel):
     question: str
     session_id: Optional[str] = "default"
 
+class WidgetAppearanceUpdate(BaseModel):
+    client_id: str
+
+    color: str
+    name: str
+    welcome_message: str
+
+    position: str
+
+    radius: int
+
+    dark_mode: bool
+
+    font: str
+
+    logo_url: str | None = None
+
+    launcher_icon: str | None = None
+
 class PublicQuestion(BaseModel):
     question: str
     client_id: str
@@ -897,6 +916,80 @@ def get_widget_script():
         "widget.js",
         media_type="application/javascript"
     )
+
+@app.post("/widget/appearance")
+def save_widget_appearance(
+    data: WidgetAppearanceUpdate
+):
+
+    url = f"{SUPABASE_URL}/rest/v1/widget_settings"
+
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates",
+    }
+
+    payload = {
+        "client_id": data.client_id,
+
+        "color": data.color,
+        "name": data.name,
+        "welcome_message": data.welcome_message,
+
+        "position": data.position,
+
+        "radius": data.radius,
+
+        "dark_mode": data.dark_mode,
+
+        "font": data.font,
+
+        "logo_url": data.logo_url,
+
+        "launcher_icon": data.launcher_icon,
+    }
+
+    r = requests.post(
+        url,
+        headers=headers,
+        json=payload,
+    )
+
+    return {
+        "success": True
+    }
+
+
+@app.get("/widget/appearance/{client_id}")
+def get_widget_appearance(
+    client_id: str
+):
+
+    url = (
+        f"{SUPABASE_URL}/rest/v1/widget_settings"
+        f"?client_id=eq.{client_id}"
+        f"&select=*"
+    )
+
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+    }
+
+    r = requests.get(
+        url,
+        headers=headers,
+    )
+
+    data = r.json()
+
+    if not data:
+        return {}
+
+    return data[0]
+
 # =========================
 # WEBSITE SCRAPING
 # =========================
