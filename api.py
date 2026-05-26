@@ -10,7 +10,6 @@ import os
 import requests
 from bs4 import BeautifulSoup
 import math
-
 from datetime import datetime, timedelta
 from typing import Optional
 from app.services.usage_service import check_limit, increment_usage
@@ -72,9 +71,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -348,9 +345,15 @@ def widget_ask(data: WidgetQuestion):
         #
         # 🔥 KNOWLEDGE
         #
-        context = "\n".join(
-            get_knowledge(client_id)[:5]
+        results = semantic_search(
+            client_id,
+            question
         )
+
+        context = "\n".join([
+            r["content"]
+            for r in results
+        ])
 
         if not context:
             return {
@@ -602,41 +605,7 @@ def get_memory(
 
     return messages
 
-@app.post("/widget/ask")
-def widget_ask(data: dict):
 
-    client_id = data.get("client_id")
-    question = data.get("question")
-
-    if not client_id:
-        raise HTTPException(400, "Missing client_id")
-
-    context = "\n".join(get_knowledge(client_id)[:5])
-
-    if not context:
-        return {
-            "answer": "Brak danych."
-        }
-
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {
-                "role": "system",
-                "content": "Odpowiadaj krótko i konkretnie."
-            },
-            {
-                "role": "user",
-                "content": f"{context}\n\n{question}"
-            }
-        ]
-    )
-
-    answer = response.choices[0].message.content
-
-    return {
-        "answer": answer
-    }
 
 # =========================
 # CHAT
