@@ -193,9 +193,28 @@ async function loadAppearance() {
     document.createElement("div");
 
   button.id = "chatbot-button";
-  button.innerHTML =
-  settings.launcher_icon || "💬";
+  if (
+  settings.launcher_image
+) {
 
+  button.innerHTML = `
+    <img
+      src="${settings.launcher_image}"
+      style="
+        width:100%;
+        height:100%;
+        border-radius:50%;
+        object-fit:cover;
+      "
+    />
+  `;
+
+} else {
+
+  button.innerHTML =
+    settings.launcher_icon ||
+    "💬";
+}
   const box =
     document.createElement("div");
 
@@ -308,6 +327,62 @@ if (!sessionId) {
   );
 }
 
+//
+// 🔥 LEAD CAPTURE
+//
+let messageCount = 0;
+
+let leadCaptured = false;
+
+async function showLeadForm() {
+
+  if (leadCaptured) return;
+
+  leadCaptured = true;
+
+  const email =
+    prompt(
+      "Leave your email for follow-up 👋"
+    );
+
+  if (!email) return;
+
+  try {
+
+    await fetch(
+      API_URL + "/lead",
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+
+        body: JSON.stringify({
+
+          client_id:
+            clientId,
+
+          session_id:
+            sessionId,
+
+          email,
+        }),
+      }
+    );
+
+    addMessage(
+      "Thanks! We will contact you soon 🚀",
+      "ai"
+    );
+
+  } catch (err) {
+
+    console.error(err);
+  }
+}
+
   // =========================
   // SEND MESSAGE
   // =========================
@@ -321,6 +396,14 @@ if (!sessionId) {
     input.value = "";
 
     addMessage(text, "user");
+
+    messageCount++;
+
+if (
+  messageCount === 3
+) {
+  showLeadForm();
+}
 
     const aiMessage =
       addMessage("...", "ai");

@@ -4,7 +4,8 @@
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
-
+from fastapi import UploadFile, File
+import uuid
 import logging
 import stripe
 import uuid
@@ -105,7 +106,7 @@ class Question(BaseModel):
 
 class WidgetAppearanceUpdate(BaseModel):
     client_id: str
-
+    theme: str | None = None
     color: str
     name: str
     welcome_message: str
@@ -121,6 +122,11 @@ class WidgetAppearanceUpdate(BaseModel):
     logo_url: str | None = None
 
     launcher_icon: str | None = None
+
+    theme: str | None = None
+    launcher_image: str | None = None
+
+    launcher_image: str | None = None
 
 class PublicQuestion(BaseModel):
     question: str
@@ -917,6 +923,123 @@ def get_widget_script():
         media_type="application/javascript"
     )
 
+#
+# 🔥 SAVE LEAD
+#
+@app.post("/lead")
+async def save_lead(
+    data: dict
+):
+
+    try:
+
+        supabase.table(
+            "leads"
+        ).insert({
+
+            "client_id":
+                data.get(
+                    "client_id"
+                ),
+
+            "session_id":
+                data.get(
+                    "session_id"
+                ),
+
+            "email":
+                data.get(
+                    "email"
+                ),
+
+            "name":
+                data.get(
+                    "name"
+                ),
+
+            "phone":
+                data.get(
+                    "phone"
+                ),
+
+        }).execute()
+
+        return {
+            "success": True
+        }
+
+    except Exception as e:
+
+        print(
+            "LEAD ERROR:",
+            e
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+#
+# 🔥 UPLOAD FILE
+#
+@app.post("/upload")
+async def upload_file(
+    file: UploadFile = File(...)
+):
+
+    try:
+
+        file_ext = (
+            file.filename
+            .split(".")[-1]
+        )
+
+        file_name = (
+            f"{uuid.uuid4()}."
+            f"{file_ext}"
+        )
+
+        file_bytes = (
+            await file.read()
+        )
+
+        supabase.storage \
+            .from_("widget-assets") \
+            .upload(
+                file_name,
+                file_bytes,
+                {
+                    "content-type":
+                        file.content_type
+                }
+            )
+
+        public_url = (
+            supabase.storage
+            .from_("widget-assets")
+            .get_public_url(
+                file_name
+            )
+        )
+
+        return {
+            "url":
+                public_url
+        }
+
+    except Exception as e:
+
+        print(
+            "UPLOAD ERROR:",
+            e
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
 @app.post("/widget/appearance")
 def save_widget_appearance(
     data: WidgetAppearanceUpdate
@@ -949,6 +1072,9 @@ def save_widget_appearance(
         "logo_url": data.logo_url,
 
         "launcher_icon": data.launcher_icon,
+
+        "launcher_image":
+            data.launcher_image,
     }
 
     r = requests.post(
@@ -1092,6 +1218,46 @@ def scrape_website(
             500,
             "SCRAPE_FAILED"
         )
+
+#
+# 🔥 GET LEADS
+#
+@app.get("/leads/{client_id}")
+async def get_leads(
+    client_id: str
+):
+
+    try:
+
+        result = (
+            supabase
+            .table("leads")
+            .select("*")
+            .eq(
+                "client_id",
+                client_id
+            )
+            .order(
+                "created_at",
+                desc=True
+            )
+            .execute()
+        )
+
+        return result.data
+
+    except Exception as e:
+
+        print(
+            "GET LEADS ERROR:",
+            e
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
 # =========================
 # STRIPE
 # =========================
