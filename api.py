@@ -990,36 +990,55 @@ async def upload_file(
 
     try:
 
-        file_ext = (
+        #
+        # EXTENSION
+        #
+        ext = (
             file.filename
             .split(".")[-1]
         )
 
-        file_name = (
-            f"{uuid.uuid4()}."
-            f"{file_ext}"
+        #
+        # RANDOM NAME
+        #
+        filename = (
+            f"{uuid.uuid4()}.{ext}"
         )
 
-        file_bytes = (
-            await file.read()
-        )
+        #
+        # FILE BYTES
+        #
+        contents = await file.read()
 
-        supabase.storage \
-            .from_("widget-assets") \
+        #
+        # UPLOAD
+        #
+        response = (
+            supabase.storage
+            .from_("widget-assets")
             .upload(
-                file_name,
-                file_bytes,
-                {
+                path=filename,
+                file=contents,
+                file_options={
                     "content-type":
                         file.content_type
                 }
             )
+        )
 
+        print(
+            "UPLOAD RESPONSE:",
+            response
+        )
+
+        #
+        # PUBLIC URL
+        #
         public_url = (
             supabase.storage
             .from_("widget-assets")
             .get_public_url(
-                file_name
+                filename
             )
         )
 
@@ -1031,9 +1050,10 @@ async def upload_file(
     except Exception as e:
 
         print(
-            "UPLOAD ERROR:",
-            e
+            "UPLOAD ERROR:"
         )
+
+        print(e)
 
         raise HTTPException(
             status_code=500,
