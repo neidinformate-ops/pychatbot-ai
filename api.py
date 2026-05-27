@@ -23,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from app.services.usage_service import check_limit, get_usage, get_limit
 from openai import OpenAI
+
 from fastapi.responses import FileResponse
 from auth import (
     create_user,
@@ -933,36 +934,49 @@ async def save_lead(
 
     try:
 
-        supabase.table(
-            "leads"
-        ).insert({
+        response = requests.post(
+            f"{SUPABASE_URL}/rest/v1/leads",
 
-            "client_id":
-                data.get(
-                    "client_id"
-                ),
+            headers=HEADERS,
 
-            "session_id":
-                data.get(
-                    "session_id"
-                ),
+            json={
 
-            "email":
-                data.get(
-                    "email"
-                ),
+                "client_id":
+                    data.get(
+                        "client_id"
+                    ),
 
-            "name":
-                data.get(
-                    "name"
-                ),
+                "session_id":
+                    data.get(
+                        "session_id"
+                    ),
 
-            "phone":
-                data.get(
-                    "phone"
-                ),
+                "email":
+                    data.get(
+                        "email"
+                    ),
 
-        }).execute()
+                "name":
+                    data.get(
+                        "name"
+                    ),
+
+                "phone":
+                    data.get(
+                        "phone"
+                    ),
+            }
+        )
+
+        print(
+            "LEAD STATUS:",
+            response.status_code
+        )
+
+        print(
+            "LEAD RESPONSE:",
+            response.text
+        )
 
         return {
             "success": True
@@ -979,10 +993,10 @@ async def save_lead(
             status_code=500,
             detail=str(e)
         )
-
 #
 # 🔥 UPLOAD FILE
 #
+print("🔥 NEW API FILE LOADED")
 @app.post("/upload")
 async def upload_file(
     file: UploadFile = File(...)
@@ -990,56 +1004,66 @@ async def upload_file(
 
     try:
 
-        #
-        # EXTENSION
-        #
+        import uuid
+        import requests
+
         ext = (
             file.filename
             .split(".")[-1]
         )
 
-        #
-        # RANDOM NAME
-        #
         filename = (
             f"{uuid.uuid4()}.{ext}"
         )
 
-        #
-        # FILE BYTES
-        #
         contents = await file.read()
 
-        #
-        # UPLOAD
-        #
-        response = (
-            supabase.storage
-            .from_("widget-assets")
-            .upload(
-                path=filename,
-                file=contents,
-                file_options={
-                    "content-type":
-                        file.content_type
-                }
-            )
+        upload_url = (
+            f"{SUPABASE_URL}"
+            f"/storage/v1/object/"
+            f"widget-assets/"
+            f"{filename}"
+        )
+
+        headers = {
+            "apikey":
+                SUPABASE_KEY,
+
+            "Authorization":
+                f"Bearer {SUPABASE_KEY}",
+
+            "Content-Type":
+                file.content_type,
+        }
+
+        response = requests.put(
+            upload_url,
+            headers=headers,
+            data=contents
+        )
+
+        print(
+            "UPLOAD STATUS:",
+            response.status_code
         )
 
         print(
             "UPLOAD RESPONSE:",
-            response
+            response.text
         )
 
-        #
-        # PUBLIC URL
-        #
-        public_url = (
-            supabase.storage
-            .from_("widget-assets")
-            .get_public_url(
-                filename
+        if response.status_code >= 400:
+
+            raise HTTPException(
+                status_code=500,
+                detail=response.text
             )
+
+        public_url = (
+            f"{SUPABASE_URL}"
+            f"/storage/v1/object/public/"
+            f"widget-assets/"
+            f"{filename}"
         )
 
         return {
@@ -1249,22 +1273,25 @@ async def get_leads(
 
     try:
 
-        result = (
-            supabase
-            .table("leads")
-            .select("*")
-            .eq(
-                "client_id",
-                client_id
-            )
-            .order(
-                "created_at",
-                desc=True
-            )
-            .execute()
+        response = requests.get(
+
+            f"{SUPABASE_URL}/rest/v1/leads",
+
+            headers=HEADERS,
+
+            params={
+                "client_id":
+                    f"eq.{client_id}",
+
+                "select":
+                    "*",
+
+                "order":
+                    "created_at.desc"
+            }
         )
 
-        return result.data
+        return response.json()
 
     except Exception as e:
 
