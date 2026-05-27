@@ -68,7 +68,8 @@ FROM_EMAIL = "onboarding@resend.dev"
 HEADERS = {
     "apikey": SUPABASE_KEY,
     "Authorization": f"Bearer {SUPABASE_KEY}",
-    "Content-Type": "application/json"
+    "Content-Type": "application/json",
+    "x-upsert": "true"
 }
 
 # =========================
@@ -127,7 +128,6 @@ class WidgetAppearanceUpdate(BaseModel):
     theme: str | None = None
     launcher_image: str | None = None
 
-    launcher_image: str | None = None
 
 class PublicQuestion(BaseModel):
     question: str
@@ -805,8 +805,15 @@ def ask(q: Question, user=Depends(get_current_user)):
 # PUBLIC CHAT (WIDGET)
 # =========================
 @app.post("/ask-public")
-def ask_public(q: PublicQuestion):
+async def ask_public(q: PublicQuestion):
+
     client_id = q.client_id
+
+    if not client_id:
+        raise HTTPException(400, "Missing client_id")
+
+    check_rate_limit(client_id)
+
     save_message(
         client_id,
         q.session_id,
@@ -814,35 +821,29 @@ def ask_public(q: PublicQuestion):
         q.question
     )
 
-    if not client_id:
-        raise HTTPException(400, "Missing client_id")
-
-    # 1. RATE LIMIT (widget spam protection)
-    check_rate_limit(client_id)
-
-    # 2. BUSINESS LIMIT
-    try:
-        pass
-    except HTTPException as e:
-        if e.detail == "LIMIT_REACHED":
-            raise HTTPException(403, "LIMIT_REACHED")
-        raise e
-
-    # 3. KNOWLEDGE
     context = "\n".join(
         get_knowledge(client_id)[:5]
     )
 
     if not context:
-        return {
-            "answer": "❌ Brak danych"
-        }
+        async def no_data():
+            yield json.dumps({
+                "token": "❌ Brak danych"
+            }) + "\n"
 
-    try:
+        return StreamingResponse(
+            no_data(),
+            media_type="text/plain"
+        )
 
-        # 4. AI RESPONSE
-        response = client.chat.completions.create(
+    async def generate():
+
+        full_answer = ""
+
+        stream = client.chat.completions.create(
             model="gpt-4o-mini",
+
+            stream=True,
 
             messages=[
                 {
@@ -858,28 +859,38 @@ def ask_public(q: PublicQuestion):
             ]
         )
 
-        answer = (
-            response
-            .choices[0]
-            .message
-            .content
-        )
+        for chunk in stream:
+
+            token = (
+                chunk
+                .choices[0]
+                .delta
+                .content
+            )
+
+            if token:
+
+                full_answer += token
+
+                yield json.dumps({
+                    "token": token
+                }) + "\n"
+
+                await asyncio.sleep(0.01)
+
         save_message(
             client_id,
             q.session_id,
             "assistant",
-            answer
+            full_answer
         )
 
-
-        # 5. INCREMENT
         increment_usage(client_id)
 
-        return {"answer": answer}
-
-    except Exception as e:
-        logging.error(f"PUBLIC AI ERROR: {e}")
-        raise HTTPException(500, "AI_ERROR")
+    return StreamingResponse(
+        generate(),
+        media_type="text/plain"
+    )
 
 # =========================
 # CHUNKING

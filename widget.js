@@ -411,21 +411,25 @@ if (
     try {
 
       const res = await fetch(
-        API_URL + "/ask-public",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-          body: JSON.stringify({
-            question: text,
-            client_id: clientId,
-            session_id: sessionId,
-          }),
+  API_URL + "/ask-public",
+  {
+    method: "POST",
 
-      const data =
-        await res.json();
+    headers: {
+      "Content-Type":
+        "application/json",
+    },
+
+    body: JSON.stringify({
+      question: text,
+      client_id: clientId,
+      session_id: sessionId,
+    }),
+  }
+);
+
+const data =
+  await res.json();
 
       aiMessage.innerText =
         data.answer || "Brak odpowiedzi";
@@ -458,10 +462,9 @@ async function start() {
 
   await loadAppearance();
 
-  console.log(
-    "APPEARANCE:",
-    settings
-  );
+  createStyles();
+
+  createWidget();
 }
 
 start();
