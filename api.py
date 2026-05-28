@@ -9,6 +9,8 @@ import uuid
 import logging
 import stripe
 import uuid
+import json
+import asyncio
 import bcrypt
 import resend
 import os
@@ -23,7 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from app.services.usage_service import check_limit, get_usage, get_limit
 from openai import OpenAI
-
+from fastapi.responses import StreamingResponse
 from fastapi.responses import FileResponse
 from auth import (
     create_user,
@@ -79,9 +81,20 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+
+    allow_origins=[
+
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+
+        "http://localhost:5500",
+        "http://127.0.0.1:5500",
+    ],
+
     allow_credentials=True,
+
     allow_methods=["*"],
+
     allow_headers=["*"],
 )
 
@@ -1144,32 +1157,61 @@ def save_widget_appearance(
 
 
 @app.get("/widget/appearance/{client_id}")
-def get_widget_appearance(
-    client_id: str
-):
+def get_widget_appearance(client_id: str):
 
-    url = (
-        f"{SUPABASE_URL}/rest/v1/widget_settings"
-        f"?client_id=eq.{client_id}"
-        f"&select=*"
-    )
+    try:
 
-    headers = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-    }
+        res = requests.get(
+            f"{SUPABASE_URL}/rest/v1/widget_appearance",
+            headers=HEADERS,
+            params={
+                "client_id": f"eq.{client_id}"
+            }
+        )
 
-    r = requests.get(
-        url,
-        headers=headers,
-    )
+        data = res.json()
 
-    data = r.json()
+        #
+        # 🔒 SAFETY
+        #
+        if not isinstance(data, list):
 
-    if not data:
+            print(
+                "❌ Invalid appearance response:",
+                data
+            )
+
+            return {}
+
+        #
+        # ❌ EMPTY
+        #
+        if len(data) == 0:
+
+            print(
+                "⚠️ No appearance for:",
+                client_id
+            )
+
+            return {}
+
+        #
+        # ✅ OK
+        #
+        return data[0]
+
+    except Exception as e:
+
+        import traceback
+
+        traceback.print_exc()
+
+        print(
+            "❌ Appearance endpoint error:",
+            str(e)
+        )
+
         return {}
-
-    return data[0]
 
 # =========================
 # WEBSITE SCRAPING
