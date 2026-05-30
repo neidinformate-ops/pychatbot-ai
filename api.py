@@ -1141,7 +1141,7 @@ async def save_widget_appearance(
             "color": data.get("color"),
 
             # 🔥 avatar z launcher image
-            "avatar": data.get("launcher_image"),
+            "avatar": data.get("avatar"),
 
             "launcher_image": data.get("launcher_image"),
             "radius": data.get("radius"),
@@ -1169,6 +1169,23 @@ async def save_widget_appearance(
             "avatar_zoom":
                 data.get(
                     "avatarZoom",
+                    1
+                ),
+            "launcher_position_x":
+                data.get(
+                    "launcherPositionX",
+                    50
+                ),
+
+            "launcher_position_y":
+                data.get(
+                    "launcherPositionY",
+                    50
+                ),
+
+            "launcher_zoom":
+                data.get(
+                    "launcherZoom",
                     1
                 ),
         },
@@ -1241,6 +1258,23 @@ async def get_widget_appearance(
             "avatarZoom":
                 appearance.get(
                     "avatar_zoom",
+                    1
+                ),
+            "launcherPositionX":
+                appearance.get(
+                    "launcher_position_x",
+                    50
+                ),
+
+            "launcherPositionY":
+                appearance.get(
+                    "launcher_position_y",
+                    50
+                ),
+
+            "launcherZoom":
+                appearance.get(
+                    "launcher_zoom",
                     1
                 ),
         }
