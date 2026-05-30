@@ -1,6 +1,17 @@
-.env
+# Python
+.venv/
+venv/
 __pycache__/
 *.pyc
+
+# Env
 .env
-*.env
-oak.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+
+# Build
+dist/
+build/

@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 from fastapi import UploadFile, File
+from supabase import create_client
+import os
 import uuid
 import logging
 import stripe
@@ -48,6 +50,11 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 print("ACTIVE KEY:", OPENAI_API_KEY)
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+supabase = create_client(
+    SUPABASE_URL,
+    SUPABASE_KEY
+)
 
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_PRICE_ID = os.getenv("STRIPE_PRICE_ID")
@@ -1109,47 +1116,66 @@ async def upload_file(
         )
 
 @app.post("/widget/appearance")
-def save_widget_appearance(
-    data: WidgetAppearanceUpdate
+async def save_widget_appearance(
+    request: Request
 ):
+    data = await request.json()
 
-    url = f"{SUPABASE_URL}/rest/v1/widget_settings"
+    print("🔥 SAVE APPEARANCE:", data)
 
-    headers = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates",
-    }
+    client_id = data.get("client_id")
 
-    payload = {
-        "client_id": data.client_id,
+    if not client_id:
+        return {
+            "success": False,
+            "error": "Missing client_id"
+        }
 
-        "color": data.color,
-        "name": data.name,
-        "welcome_message": data.welcome_message,
+    supabase.table(
+        "widget_settings"
+    ).upsert(
+        {
+            "client_id": client_id,
+            "name": data.get("name"),
+            "subtitle": data.get("subtitle"),
+            "color": data.get("color"),
 
-        "position": data.position,
+            # 🔥 avatar z launcher image
+            "avatar": data.get("launcher_image"),
 
-        "radius": data.radius,
+            "launcher_image": data.get("launcher_image"),
+            "radius": data.get("radius"),
+            "dark_mode": data.get("dark_mode"),
+            "font": data.get("font"),
+            "position": data.get("position"),
 
-        "dark_mode": data.dark_mode,
+            "welcome_message":
+                data.get(
+                    "welcome_message"
+                ),
 
-        "font": data.font,
+            "avatar_position_x":
+                data.get(
+                    "avatarPositionX",
+                    50
+                ),
 
-        "logo_url": data.logo_url,
+            "avatar_position_y":
+                data.get(
+                    "avatarPositionY",
+                    50
+                ),
 
-        "launcher_icon": data.launcher_icon,
+            "avatar_zoom":
+                data.get(
+                    "avatarZoom",
+                    1
+                ),
+        },
 
-        "launcher_image":
-            data.launcher_image,
-    }
+        on_conflict="client_id"
 
-    r = requests.post(
-        url,
-        headers=headers,
-        json=payload,
-    )
+    ).execute()
 
     return {
         "success": True
@@ -1157,62 +1183,75 @@ def save_widget_appearance(
 
 
 @app.get("/widget/appearance/{client_id}")
-def get_widget_appearance(client_id: str):
+async def get_widget_appearance(
+    client_id: str
+):
 
     try:
 
-        res = requests.get(
-            f"{SUPABASE_URL}/rest/v1/widget_appearance",
-            headers=HEADERS,
-            params={
-                "client_id": f"eq.{client_id}"
-            }
+        response = (
+            supabase
+            .table("widget_settings")
+            .select("*")
+            .eq("client_id", client_id)
+            .limit(1)
+            .execute()
         )
 
-        data = res.json()
-
         #
-        # 🔒 SAFETY
+        # ❌ NO DATA
         #
-        if not isinstance(data, list):
+        if (
+            not response.data
+            or len(response.data) == 0
+        ):
 
             print(
-                "❌ Invalid appearance response:",
-                data
+                f"⚠️ No appearance for: {client_id}"
             )
 
             return {}
 
         #
-        # ❌ EMPTY
+        # ✅ SUCCESS
         #
-        if len(data) == 0:
-
-            print(
-                "⚠️ No appearance for:",
-                client_id
-            )
-
-            return {}
-
-        #
-        # ✅ OK
-        #
-        return data[0]
-
-    except Exception as e:
-
-        import traceback
-
-        traceback.print_exc()
+        appearance = response.data[0]
 
         print(
-            "❌ Appearance endpoint error:",
-            str(e)
+            "🎨 Appearance loaded:",
+            appearance
+        )
+
+        return {
+
+            **appearance,
+
+            "avatarPositionX":
+                appearance.get(
+                    "avatar_position_x",
+                    50
+                ),
+
+            "avatarPositionY":
+                appearance.get(
+                    "avatar_position_y",
+                    50
+                ),
+
+            "avatarZoom":
+                appearance.get(
+                    "avatar_zoom",
+                    1
+                ),
+        }
+    except Exception as error:
+
+        print(
+            "❌ Appearance fetch failed:",
+            error
         )
 
         return {}
-
 # =========================
 # WEBSITE SCRAPING
 # =========================
