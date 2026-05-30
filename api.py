@@ -161,6 +161,9 @@ class ScrapeRequest(BaseModel):
 # =========================
 RATE_LIMIT = {}
 
+class DeleteFileRequest(BaseModel):
+    file_url: str
+
 def check_rate_limit(client_id):
     now = datetime.now()
     RATE_LIMIT.setdefault(client_id, [])
@@ -1109,6 +1112,45 @@ async def upload_file(
         )
 
         print(e)
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+@app.post("/delete-file")
+async def delete_file(
+    data: DeleteFileRequest
+):
+
+    try:
+
+        file_url = data.file_url
+
+        filename = (
+            file_url
+            .split("/")[-1]
+        )
+
+        result = (
+            supabase
+            .storage
+            .from_("widget-assets")
+            .remove([
+                filename
+            ])
+        )
+
+        return {
+            "success": True
+        }
+
+    except Exception as e:
+
+        print(
+            "DELETE FILE ERROR:",
+            e
+        )
 
         raise HTTPException(
             status_code=500,
