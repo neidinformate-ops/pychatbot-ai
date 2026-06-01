@@ -1197,39 +1197,57 @@ async def save_widget_appearance(
                 ),
 
             "avatar_position_x":
-                data.get(
-                    "avatarPositionX",
-                    50
-                ),
+    data.get(
+        "avatar_position_x",
+        data.get(
+            "avatarPositionX",
+            50
+        )
+    ),
 
             "avatar_position_y":
-                data.get(
-                    "avatarPositionY",
-                    50
-                ),
+    data.get(
+        "avatar_position_y",
+        data.get(
+            "avatarPositionY",
+            50
+        )
+    ),
 
-            "avatar_zoom":
-                data.get(
-                    "avatarZoom",
-                    1
-                ),
+"avatar_zoom":
+    data.get(
+        "avatar_zoom",
+        data.get(
+            "avatarZoom",
+            1
+        )
+    ),
             "launcher_position_x":
-                data.get(
-                    "launcherPositionX",
-                    50
-                ),
+    data.get(
+        "launcher_position_x",
+        data.get(
+            "launcherPositionX",
+            50
+        )
+    ),
 
             "launcher_position_y":
-                data.get(
-                    "launcherPositionY",
-                    50
-                ),
+    data.get(
+        "launcher_position_y",
+        data.get(
+            "launcherPositionY",
+            50
+        )
+    ),
 
-            "launcher_zoom":
-                data.get(
-                    "launcherZoom",
-                    1
-                ),
+"launcher_zoom":
+    data.get(
+        "launcher_zoom",
+        data.get(
+            "launcherZoom",
+            1
+        )
+    ),
         },
 
         on_conflict="client_id"
