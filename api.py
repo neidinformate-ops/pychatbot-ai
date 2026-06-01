@@ -51,9 +51,6 @@ print("OPENAI KEY LOADED")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-print("SUPABASE_URL:", SUPABASE_URL)
-print("SUPABASE_KEY_PREFIX:", SUPABASE_KEY[:20])
-
 supabase = create_client(
     SUPABASE_URL,
     SUPABASE_KEY
