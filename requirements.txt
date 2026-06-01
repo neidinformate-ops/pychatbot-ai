@@ -6,7 +6,6 @@ numpy
 requests
 pydantic
 bcrypt
-PyJWT
 email-validator
 python-multipart
 PyJWT==2.8.0
@@ -15,3 +14,4 @@ resend
 beautifulsoup4
 lxml
 python-dotenv
+supabase==2.15.3
