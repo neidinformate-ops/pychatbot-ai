@@ -1346,6 +1346,90 @@ async def get_widget_appearance(
         )
 
         return {}
+
+@app.post("/widget/history")
+async def save_widget_history(
+    request: Request
+):
+    data = await request.json()
+
+    client_id = data.get("client_id")
+    name = data.get("name")
+    settings = data.get("settings")
+
+    if not client_id:
+        raise HTTPException(
+            400,
+            "Missing client_id"
+        )
+
+    if not name:
+        raise HTTPException(
+            400,
+            "Missing name"
+        )
+
+    supabase.table(
+        "widget_theme_history"
+    ).insert(
+        {
+            "client_id": client_id,
+            "name": name,
+            "settings": settings,
+        }
+    ).execute()
+
+    return {
+        "success": True
+    }
+
+@app.get("/widget/history/{client_id}")
+async def get_widget_history(
+    client_id: str
+):
+
+    response = (
+        supabase
+        .table(
+            "widget_theme_history"
+        )
+        .select("*")
+        .eq(
+            "client_id",
+            client_id
+        )
+        .order(
+            "created_at",
+            desc=True
+        )
+        .execute()
+    )
+
+    return response.data
+
+@app.delete("/widget/history/{snapshot_id}")
+async def delete_widget_history(
+    snapshot_id: str
+):
+
+    (
+        supabase
+        .table(
+            "widget_theme_history"
+        )
+        .delete()
+        .eq(
+            "id",
+            snapshot_id
+        )
+        .execute()
+    )
+
+    return {
+        "success": True
+    }
+
+
 # =========================
 # WEBSITE SCRAPING
 # =========================
