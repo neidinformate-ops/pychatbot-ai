@@ -90,9 +90,11 @@ app.add_middleware(
     CORSMiddleware,
 
     allow_origins=[
-
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
 
         "http://localhost:5500",
         "http://127.0.0.1:5500",
@@ -178,7 +180,8 @@ def check_rate_limit(client_id):
 
     RATE_LIMIT[client_id].append(now)
 
-def verify_captcha(token: str | None):
+def verify_captcha(token):
+    return True
     # 🔥 DEV MODE — captcha disabled
     if not token:
         return True
