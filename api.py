@@ -82,6 +82,131 @@ HEADERS = {
 }
 
 # =========================
+# ANALYTICS HELPERS
+# =========================
+
+def track_widget_event(
+    client_id: str,
+    event_type: str,
+    session_id: str = None,
+    metadata: dict = None
+):
+    try:
+
+        requests.post(
+            f"{SUPABASE_URL}/rest/v1/widget_events",
+
+            headers=HEADERS,
+
+            json={
+                "client_id": client_id,
+                "session_id": session_id,
+                "event_type": event_type,
+                "metadata": metadata or {}
+            }
+        )
+
+    except Exception as e:
+
+        print(
+            "TRACK EVENT ERROR:",
+            e
+        )
+
+
+def track_usage_event(
+    client_id: str,
+    event_type: str
+):
+    try:
+
+        requests.post(
+            f"{SUPABASE_URL}/rest/v1/usage_events",
+
+            headers=HEADERS,
+
+            json={
+                "client_id": client_id,
+                "event_type": event_type
+            }
+        )
+
+    except Exception as e:
+
+        print(
+            "USAGE EVENT ERROR:",
+            e
+        )
+
+
+def update_daily_analytics(
+    client_id: str,
+    field: str
+):
+    try:
+
+        today = datetime.utcnow().date().isoformat()
+
+        existing = requests.get(
+            f"{SUPABASE_URL}/rest/v1/analytics_daily",
+
+            headers=HEADERS,
+
+            params={
+                "client_id": f"eq.{client_id}",
+                "day": f"eq.{today}"
+            }
+        ).json()
+
+        if existing:
+
+            row = existing[0]
+
+            requests.patch(
+                f"{SUPABASE_URL}/rest/v1/analytics_daily",
+
+                headers=HEADERS,
+
+                params={
+                    "id": f"eq.{row['id']}"
+                },
+
+                json={
+                    field:
+                    row.get(field, 0) + 1
+                }
+            )
+
+        else:
+
+            payload = {
+                "client_id": client_id,
+                "day": today,
+
+                "messages": 0,
+                "conversations": 0,
+                "leads": 0,
+                "widget_opens": 0
+            }
+
+            payload[field] = 1
+
+            requests.post(
+                f"{SUPABASE_URL}/rest/v1/analytics_daily",
+
+                headers=HEADERS,
+
+                json=payload
+            )
+
+    except Exception as e:
+
+        print(
+            "ANALYTICS ERROR:",
+            e
+        )
+
+# =========================
 # APP
 # =========================
 app = FastAPI()
@@ -616,7 +741,7 @@ def save_message(
 ):
 
     requests.post(
-        f"{SUPABASE_URL}/rest/v1/conversations",
+        f"{SUPABASE_URL}/rest/v1/messages",
 
         headers=HEADERS,
 
@@ -624,7 +749,7 @@ def save_message(
             "client_id": client_id,
             "session_id": session_id,
             "role": role,
-            "content": content
+            "text": content
         }
     )
 
@@ -638,22 +763,22 @@ def get_memory(
 ):
 
     res = requests.get(
-        f"{SUPABASE_URL}/rest/v1/conversations",
+        f"{SUPABASE_URL}/rest/v1/messages",
 
         headers=HEADERS,
 
         params={
             "client_id":
-            f"eq.{client_id}",
+                f"eq.{client_id}",
 
             "session_id":
-            f"eq.{session_id}",
+                f"eq.{session_id}",
 
             "order":
-            "created_at.desc",
+                "created_at.desc",
 
             "limit":
-            limit
+                limit
         }
     )
 
@@ -661,7 +786,22 @@ def get_memory(
 
     messages.reverse()
 
-    return messages
+    #
+    # kompatybilność ze starym kodem
+    #
+    normalized = []
+
+    for msg in messages:
+
+        normalized.append({
+            "role":
+                msg.get("role"),
+
+            "content":
+                msg.get("text", "")
+        })
+
+    return normalized
 
 
 
@@ -678,6 +818,19 @@ def ask(q: Question, user=Depends(get_current_user)):
         client_id = user["id"]
 
         print("CLIENT:", client_id)
+
+        #
+        # ANALYTICS
+        #
+        track_usage_event(
+            client_id,
+            "chat_message"
+        )
+
+        update_daily_analytics(
+            client_id,
+            "messages"
+        )
 
         #
         # RATE LIMIT
@@ -739,6 +892,21 @@ def ask(q: Question, user=Depends(get_current_user)):
             client_id,
             q.session_id
         )
+
+        #
+        # NEW CONVERSATION
+        #
+        if len(memory) == 0:
+            track_widget_event(
+                client_id,
+                "conversation_started",
+                q.session_id
+            )
+
+            update_daily_analytics(
+                client_id,
+                "conversations"
+            )
 
         messages = [
             {
@@ -810,7 +978,7 @@ def ask(q: Question, user=Depends(get_current_user)):
         #
         # INCREMENT USAGE
         #
-        # increment_usage(client_id)
+        increment_usage(client_id)
 
         return {
             "answer": answer
@@ -834,6 +1002,19 @@ def ask(q: Question, user=Depends(get_current_user)):
 async def ask_public(q: PublicQuestion):
 
     client_id = q.client_id
+
+    #
+    # ANALYTICS
+    #
+    track_usage_event(
+        client_id,
+        "public_chat_message"
+    )
+
+    update_daily_analytics(
+        client_id,
+        "messages"
+    )
 
     if not client_id:
         raise HTTPException(400, "Missing client_id")
@@ -968,6 +1149,17 @@ def get_widget_script():
 async def save_lead(
     data: dict
 ):
+    client_id = data.get("client_id")
+
+    track_widget_event(
+        client_id,
+        "lead_created"
+    )
+
+    update_daily_analytics(
+        client_id,
+        "leads"
+    )
 
     try:
 
@@ -1576,6 +1768,171 @@ async def get_leads(
         raise HTTPException(
             status_code=500,
             detail=str(e)
+        )
+
+# =========================
+# ANALYTICS
+# =========================
+@app.get("/analytics")
+def get_analytics(
+    user=Depends(get_current_user)
+):
+
+    client_id = user["id"]
+
+    try:
+
+        #
+        # DAILY STATS
+        #
+        daily = requests.get(
+
+            f"{SUPABASE_URL}/rest/v1/analytics_daily",
+
+            headers=HEADERS,
+
+            params={
+                "client_id":
+                    f"eq.{client_id}",
+
+                "order":
+                    "day.asc"
+            }
+        ).json()
+
+        #
+        # TOTALS
+        #
+        total_messages = sum(
+            row.get("messages", 0)
+            for row in daily
+        )
+
+        total_conversations = sum(
+            row.get("conversations", 0)
+            for row in daily
+        )
+
+        total_leads = sum(
+            row.get("leads", 0)
+            for row in daily
+        )
+
+        conversion_rate = 0
+
+        if total_messages > 0:
+
+            conversion_rate = round(
+                (
+                    total_leads /
+                    total_messages
+                ) * 100,
+                1
+            )
+
+        #
+        # CHART
+        #
+        chart_data = []
+
+        for row in daily[-30:]:
+
+            chart_data.append({
+                "label":
+                    row["day"][-5:],
+
+                "messages":
+                    row.get(
+                        "messages",
+                        0
+                    ),
+
+                "leads":
+                    row.get(
+                        "leads",
+                        0
+                    )
+            })
+
+        #
+        # RESPONSE
+        #
+        return {
+
+            "kpis": {
+
+                "messages":
+                    total_messages,
+
+                "conversations":
+                    total_conversations,
+
+                "leads":
+                    total_leads,
+
+                "responseRate":
+                    100
+            },
+
+            "summary": {
+
+                "messages":
+                    total_messages,
+
+                "leads":
+                    total_leads,
+
+                "conversionRate":
+                    conversion_rate
+            },
+
+            "topQuestions": [],
+
+            "analyticsData": {
+
+                "24h":
+                    chart_data,
+
+                "7d":
+                    chart_data,
+
+                "30d":
+                    chart_data,
+
+                "90d":
+                    chart_data
+            },
+
+            "widgetPerformance": {
+
+                "openRate": 0,
+
+                "engagement": 0,
+
+                "avgResponse": "1.2s"
+            },
+
+            "aiStatus": {
+
+                "systemOnline": True,
+
+                "currentModel": "GPT-4o-mini",
+
+                "retrievalSystem":
+                    "Semantic Search V1"
+            }
+        }
+
+    except Exception as e:
+
+        print(
+            "ANALYTICS ERROR:",
+            e
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="ANALYTICS_ERROR"
         )
 
 # =========================

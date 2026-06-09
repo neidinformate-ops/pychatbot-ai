@@ -26,6 +26,47 @@ def get_today():
 
 def get_user_plan(client_id: str) -> str:
 
+    try:
+
+        url = (
+            f"{SUPABASE_URL}"
+            "/rest/v1/subscriptions"
+        )
+
+        res = requests.get(
+
+            url,
+
+            headers=HEADERS,
+
+            params={
+                "client_id":
+                    f"eq.{client_id}",
+
+                "select":
+                    "plan",
+
+                "limit":
+                    1
+            }
+        )
+
+        data = res.json()
+
+        if not data:
+
+            return "free"
+
+        return (
+            data[0]
+            .get("plan", "free")
+            .lower()
+        )
+
+    except Exception:
+
+        return "free"
+
     #
     # TEMP FIX
     # zawsze free
@@ -39,6 +80,49 @@ def get_limit(plan: str) -> int:
 
 
 def get_usage(client_id: str) -> int:
+
+    try:
+
+        today = get_today()
+
+        url = (
+            f"{SUPABASE_URL}"
+            "/rest/v1/usage"
+        )
+
+        res = requests.get(
+
+            url,
+
+            headers=HEADERS,
+
+            params={
+
+                "client_id":
+                    f"eq.{client_id}",
+
+                "date":
+                    f"eq.{today}",
+
+                "select":
+                    "requests"
+            }
+        )
+
+        data = res.json()
+
+        if not data:
+
+            return 0
+
+        return (
+            data[0]
+            .get("requests", 0)
+        )
+
+    except Exception:
+
+        return 0
 
     #
     # TEMP FIX
@@ -63,6 +147,88 @@ def check_limit(client_id: str):
 
 
 def increment_usage(client_id: str):
+
+    today = get_today()
+
+    try:
+
+        url = (
+            f"{SUPABASE_URL}"
+            "/rest/v1/usage"
+        )
+
+        res = requests.get(
+
+            url,
+
+            headers=HEADERS,
+
+            params={
+
+                "client_id":
+                    f"eq.{client_id}",
+
+                "date":
+                    f"eq.{today}"
+            }
+        )
+
+        rows = res.json()
+
+        #
+        # istnieje rekord
+        #
+        if rows:
+
+            row = rows[0]
+
+            requests.patch(
+
+                url,
+
+                headers=HEADERS,
+
+                params={
+                    "id":
+                        f"eq.{row['id']}"
+                },
+
+                json={
+                    "requests":
+                        row["requests"] + 1
+                }
+            )
+
+        #
+        # pierwszy request dnia
+        #
+        else:
+
+            requests.post(
+
+                url,
+
+                headers=HEADERS,
+
+                json={
+
+                    "client_id":
+                        client_id,
+
+                    "date":
+                        today,
+
+                    "requests":
+                        1
+                }
+            )
+
+    except Exception as e:
+
+        print(
+            "USAGE ERROR:",
+            e
+        )
 
     #
     # TEMP FIX
