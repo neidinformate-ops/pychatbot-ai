@@ -808,6 +808,53 @@ def get_memory(
 # =========================
 # CHAT
 # =========================
+
+def get_client_ai_settings(
+    client_id: str
+):
+
+    response = requests.get(
+
+        f"{SUPABASE_URL}/rest/v1/ai_settings",
+
+        headers=HEADERS,
+
+        params={
+            "client_id":
+                f"eq.{client_id}",
+
+            "select":
+                "*"
+        }
+    )
+
+    data = response.json()
+
+    if len(data) == 0:
+
+        return {
+
+            "model":
+                "gpt-4o-mini",
+
+            "temperature":
+                0.7,
+
+            "language":
+                "Polski",
+
+            "response_length":
+                "Średnia",
+
+            "system_prompt":
+                "",
+
+            "lead_generation":
+                True
+        }
+
+    return data[0]
+
 @app.post("/ask")
 def ask(q: Question, user=Depends(get_current_user)):
 
@@ -816,7 +863,9 @@ def ask(q: Question, user=Depends(get_current_user)):
     try:
 
         client_id = user["id"]
-
+        settings = get_client_ai_settings(
+            client_id
+        )
         print("CLIENT:", client_id)
 
         #
@@ -908,11 +957,43 @@ def ask(q: Question, user=Depends(get_current_user)):
                 "conversations"
             )
 
+        response_style = ""
+
+        if (
+                settings["response_length"]
+                == "Krótka"
+        ):
+            response_style = (
+                "Odpowiadaj bardzo krótko."
+            )
+
+        elif (
+                settings["response_length"]
+                == "Długa"
+        ):
+            response_style = (
+                "Odpowiadaj szczegółowo."
+            )
+
+        else:
+            response_style = (
+                "Odpowiadaj średniej długości."
+            )
+
+        system_message = f"""
+        Język odpowiedzi:
+        {settings["language"]}
+
+        {response_style}
+
+        {settings["system_prompt"]}
+        """
+
         messages = [
             {
                 "role": "system",
                 "content":
-                    "Odpowiadaj krotko i konkretnie."
+                    system_message
             }
         ]
 
@@ -944,8 +1025,19 @@ def ask(q: Question, user=Depends(get_current_user)):
         # OPENAI REQUEST
         #
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=messages
+
+            model=
+            settings["model"],
+
+            temperature=
+            float(
+                settings[
+                    "temperature"
+                ]
+            ),
+
+            messages=
+            messages
         )
 
         answer = (
@@ -1898,6 +1990,460 @@ def delete_knowledge(
     return {
         "success": True
     }
+
+# =========================
+# AI DOCUMENTS
+# =========================
+
+@app.post("/upload-ai-document")
+async def upload_ai_document(
+    file: UploadFile = File(...),
+    user=Depends(get_current_user)
+):
+
+    client_id = user["id"]
+
+    try:
+
+        filename = (
+            file.filename or ""
+        ).lower()
+
+        content = ""
+
+        #
+        # TXT
+        #
+        if filename.endswith(".txt"):
+
+            raw = await file.read()
+
+            content = raw.decode(
+                "utf-8",
+                errors="ignore"
+            )
+
+        #
+        # PDF
+        #
+        elif filename.endswith(".pdf"):
+
+            from pypdf import PdfReader
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(
+                delete=False,
+                suffix=".pdf"
+            ) as temp:
+
+                temp.write(
+                    await file.read()
+                )
+
+                temp_path = temp.name
+
+            reader = PdfReader(
+                temp_path
+            )
+
+            pages = []
+
+            for page in reader.pages:
+
+                text = (
+                    page.extract_text()
+                    or ""
+                )
+
+                pages.append(text)
+
+            content = "\n".join(
+                pages
+            )
+
+        #
+        # DOCX
+        #
+        elif filename.endswith(".docx"):
+
+            from docx import Document
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(
+                delete=False,
+                suffix=".docx"
+            ) as temp:
+
+                temp.write(
+                    await file.read()
+                )
+
+                temp_path = temp.name
+
+            doc = Document(
+                temp_path
+            )
+
+            content = "\n".join([
+                p.text
+                for p in doc.paragraphs
+            ])
+
+        else:
+
+            raise HTTPException(
+                400,
+                "Unsupported file type"
+            )
+
+        #
+        # VALIDATION
+        #
+        if not content:
+
+            raise HTTPException(
+                400,
+                "Empty document"
+            )
+
+        #
+        # DUPLICATE CHECK
+        #
+        existing_document = requests.get(
+
+            f"{SUPABASE_URL}/rest/v1/ai_documents",
+
+            headers=HEADERS,
+
+            params={
+
+                "client_id":
+                    f"eq.{client_id}",
+
+                "filename":
+                    f"eq.{file.filename}",
+
+                "select":
+                    "id"
+            }
+        )
+
+        existing_data = (
+            existing_document.json()
+        )
+
+        if len(existing_data) > 0:
+            raise HTTPException(
+
+                status_code=409,
+
+                detail=
+                "DOCUMENT_ALREADY_EXISTS"
+            )
+
+        #
+        # CHUNKING
+        #
+        chunks = chunk_text(
+            content
+        )
+
+        #
+        # CREATE DOCUMENT
+        #
+        document_response = requests.post(
+
+            f"{SUPABASE_URL}/rest/v1/ai_documents",
+
+            headers={
+                **HEADERS,
+                "Prefer":
+                    "return=representation"
+            },
+
+            json={
+
+                "client_id":
+                    client_id,
+
+                "filename":
+                    file.filename,
+
+                "file_type":
+                    filename.split(".")[-1],
+
+                "chunks":
+                    len(chunks),
+
+                "characters":
+                    len(content)
+            }
+        )
+
+        document_data = (
+            document_response
+            .json()[0]
+        )
+
+        document_id = (
+            document_data["id"]
+        )
+
+        saved = 0
+
+        #
+        # SAVE KNOWLEDGE
+        #
+        for chunk in chunks:
+            embedding = (
+                create_embedding(
+                    chunk
+                )
+            )
+
+            requests.post(
+
+                f"{SUPABASE_URL}/rest/v1/knowledge",
+
+                headers=HEADERS,
+
+                json={
+
+                    "client_id":
+                        client_id,
+
+                    "document_id":
+                        document_id,
+
+                    "content":
+                        chunk,
+
+                    "embedding":
+                        embedding
+                }
+            )
+
+            saved += 1
+
+        return {
+
+            "success": True,
+
+            "document_id":
+                document_id,
+
+            "filename":
+                file.filename,
+
+            "chunks":
+                saved,
+
+            "characters":
+                len(content)
+        }
+
+    except Exception as e:
+
+        print(
+            "DOCUMENT UPLOAD ERROR:",
+            e
+        )
+
+        raise HTTPException(
+            500,
+            str(e)
+        )
+
+@app.delete("/ai-document/{document_id}")
+def delete_ai_document(
+    document_id: str,
+    user=Depends(get_current_user)
+):
+
+    #
+    # DELETE KNOWLEDGE
+    #
+    requests.delete(
+
+        f"{SUPABASE_URL}/rest/v1/knowledge",
+
+        headers=HEADERS,
+
+        params={
+            "document_id":
+                f"eq.{document_id}"
+        }
+    )
+
+    #
+    # DELETE DOCUMENT
+    #
+    requests.delete(
+
+        f"{SUPABASE_URL}/rest/v1/ai_documents",
+
+        headers=HEADERS,
+
+        params={
+            "id":
+                f"eq.{document_id}"
+        }
+    )
+
+    return {
+        "success": True
+    }
+
+@app.get("/ai-documents")
+def get_ai_documents(
+    user=Depends(get_current_user)
+):
+
+    client_id = user["id"]
+
+    response = requests.get(
+
+        f"{SUPABASE_URL}/rest/v1/ai_documents",
+
+        headers=HEADERS,
+
+        params={
+
+            "client_id":
+                f"eq.{client_id}",
+
+            "order":
+                "created_at.desc"
+        }
+    )
+
+    return response.json()
+
+# =========================
+# AI SETTINGS
+# =========================
+
+@app.get("/ai-settings")
+def get_ai_settings(
+    user=Depends(get_current_user)
+):
+
+    client_id = user["id"]
+
+    response = requests.get(
+        f"{SUPABASE_URL}/rest/v1/ai_settings",
+        headers=HEADERS,
+        params={
+            "client_id": f"eq.{client_id}",
+            "select": "*"
+        }
+    )
+
+    data = response.json()
+
+    if len(data) == 0:
+
+        return {
+            "model": "gpt-5.5",
+            "temperature": 0.7,
+            "language": "Polski",
+            "response_length": "Średnia",
+            "system_prompt": "",
+            "lead_generation": True
+        }
+
+    return data[0]
+
+
+@app.post("/ai-settings")
+def save_ai_settings(
+    data: dict,
+    user=Depends(get_current_user)
+):
+
+    client_id = user["id"]
+
+    existing = requests.get(
+        f"{SUPABASE_URL}/rest/v1/ai_settings",
+        headers=HEADERS,
+        params={
+            "client_id": f"eq.{client_id}",
+            "select": "id"
+        }
+    ).json()
+
+    payload = {
+
+        "client_id": client_id,
+
+        "model":
+            data.get(
+                "model",
+                "gpt-5.5"
+            ),
+
+        "temperature":
+            data.get(
+                "temperature",
+                0.7
+            ),
+
+        "language":
+            data.get(
+                "language",
+                "Polski"
+            ),
+
+        "response_length":
+            data.get(
+                "response_length",
+                "Średnia"
+            ),
+
+        "system_prompt":
+            data.get(
+                "system_prompt",
+                ""
+            ),
+
+        "lead_generation":
+            data.get(
+                "lead_generation",
+                True
+            )
+    }
+
+    if len(existing) > 0:
+
+        requests.patch(
+
+            f"{SUPABASE_URL}/rest/v1/ai_settings",
+
+            headers=HEADERS,
+
+            params={
+                "client_id":
+                    f"eq.{client_id}"
+            },
+
+            json=payload
+        )
+
+    else:
+
+        requests.post(
+
+            f"{SUPABASE_URL}/rest/v1/ai_settings",
+
+            headers=HEADERS,
+
+            json=payload
+        )
+
+    return {
+        "success": True
+    }
+
 @app.get("/analytics")
 def get_analytics(
     user=Depends(get_current_user)
