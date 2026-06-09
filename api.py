@@ -1773,6 +1773,137 @@ async def get_leads(
 # =========================
 # ANALYTICS
 # =========================
+
+@app.post("/client/setup")
+        def client_setup(
+                data: dict,
+                user=Depends(get_current_user)
+        ):
+            client_id = user["id"]
+
+            text = data.get("text")
+
+            if not text:
+                raise HTTPException(
+                    400,
+                    "Missing text"
+                )
+
+            chunks = chunk_text(text)
+
+            saved = 0
+
+            for chunk in chunks:
+                embedding = create_embedding(
+                    chunk
+                )
+
+                requests.post(
+                    f"{SUPABASE_URL}/rest/v1/knowledge",
+                    headers=HEADERS,
+                    json={
+                        "client_id": client_id,
+                        "content": chunk,
+                        "embedding": embedding
+                    }
+                )
+
+                saved += 1
+
+            return {
+                "success": True,
+                "chunks": saved
+            }
+
+        @app.get("/knowledge")
+        def get_knowledge_records(
+                user=Depends(get_current_user)
+        ):
+            client_id = user["id"]
+
+            response = requests.get(
+                f"{SUPABASE_URL}/rest/v1/knowledge",
+                headers=HEADERS,
+                params={
+                    "client_id": f"eq.{client_id}",
+                    "select": "*"
+                }
+            )
+
+            return response.json()
+
+        @app.get("/knowledge/stats")
+        def get_knowledge_stats(
+                user=Depends(get_current_user)
+        ):
+
+            client_id = user["id"]
+
+            response = requests.get(
+                f"{SUPABASE_URL}/rest/v1/knowledge",
+
+                headers=HEADERS,
+
+                params={
+                    "client_id": f"eq.{client_id}",
+                    "select": "id,content"
+                }
+            )
+
+            knowledge = response.json()
+
+            total_knowledge = len(
+                knowledge
+            )
+
+            total_chars = sum(
+                len(
+                    item.get(
+                        "content",
+                        ""
+                    )
+                )
+                for item in knowledge
+            )
+
+            average_length = 0
+
+            if total_knowledge > 0:
+                average_length = round(
+                    total_chars /
+                    total_knowledge
+                )
+
+            return {
+
+                "totalKnowledge":
+                    total_knowledge,
+
+                "totalChars":
+                    total_chars,
+
+                "averageLength":
+                    average_length
+            }
+
+        @app.delete("/knowledge/{knowledge_id}")
+        def delete_knowledge(
+                knowledge_id: str,
+                user=Depends(get_current_user)
+        ):
+
+            requests.delete(
+                f"{SUPABASE_URL}/rest/v1/knowledge",
+                headers=HEADERS,
+                params={
+                    "id": f"eq.{knowledge_id}"
+                }
+            )
+
+            return {
+                "success": True
+            }
+
 @app.get("/analytics")
 def get_analytics(
     user=Depends(get_current_user)
@@ -1996,6 +2127,10 @@ async def webhook(request: Request):
                 "stripe_subscription_id": subscription_id
             }
         )
+
+        # =========================
+        # AI BRAIN
+        # ========================
 
     # =========================
     # SUBSCRIPTION CANCELED
