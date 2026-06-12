@@ -211,7 +211,7 @@ def update_daily_analytics(
 # =========================
 app = FastAPI()
 
-aapp.add_middleware(
+app.add_middleware(
     CORSMiddleware,
 
     allow_origins=["*"],
