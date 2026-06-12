@@ -211,21 +211,12 @@ def update_daily_analytics(
 # =========================
 app = FastAPI()
 
-app.add_middleware(
+aapp.add_middleware(
     CORSMiddleware,
 
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
+    allow_origins=["*"],
 
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-
-        "http://localhost:5500",
-        "http://127.0.0.1:5500",
-    ],
-
-    allow_credentials=True,
+    allow_credentials=False,
 
     allow_methods=["*"],
 
