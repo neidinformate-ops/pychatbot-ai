@@ -753,6 +753,66 @@ def save_message(
         }
     )
 
+@app.get("/widgets")
+def get_widgets(
+    user=Depends(
+        get_current_user
+    )
+):
+
+    client_id = user["id"]
+
+    response = requests.get(
+
+        f"{SUPABASE_URL}/rest/v1/widgets",
+
+        headers=HEADERS,
+
+        params={
+            "client_id":
+                f"eq.{client_id}",
+
+            "order":
+                "created_at.desc"
+        }
+    )
+
+    return response.json()
+
+@app.post("/widgets")
+def create_widget(
+    data: dict,
+    user=Depends(
+        get_current_user
+    )
+):
+
+    client_id = user["id"]
+
+    payload = {
+
+        "client_id":
+            client_id,
+
+        "name":
+            data.get(
+                "name",
+                "Nowy Widget"
+            )
+
+    }
+
+    response = requests.post(
+
+        f"{SUPABASE_URL}/rest/v1/widgets",
+
+        headers=HEADERS,
+
+        json=payload
+    )
+
+    return response.json()
+
 # =========================
 # GET MEMORY
 # =========================
@@ -854,6 +914,152 @@ def get_client_ai_settings(
         }
 
     return data[0]
+
+@app.get(
+    "/widget/status"
+)
+def get_widget_status(
+    user=Depends(
+        get_current_user
+    )
+):
+
+    client_id = user["id"]
+
+    response = requests.get(
+
+        f"{SUPABASE_URL}/rest/v1/widget_installations",
+
+        headers=HEADERS,
+
+        params={
+            "client_id":
+                f"eq.{client_id}",
+
+            "select":
+                "*",
+
+            "order":
+                "last_seen.desc"
+        }
+    )
+
+    data = response.json()
+
+    installed = len(
+        data
+    ) > 0
+
+    domains = len(
+        data
+    )
+
+    latest = None
+
+    if installed:
+        latest = data[0]
+
+    return {
+
+        "installed":
+            installed,
+
+        "domains":
+            domains,
+
+        "latest":
+            latest,
+
+        "records":
+            data
+    }
+
+@app.post(
+    "/widget/heartbeat"
+)
+def widget_heartbeat(
+    data: dict
+):
+
+    client_id = data.get(
+        "client_id"
+    )
+
+    domain = data.get(
+        "domain"
+    )
+
+    if not client_id:
+        return {
+            "success": False
+        }
+
+    existing = requests.get(
+
+        f"{SUPABASE_URL}/rest/v1/widget_installations",
+
+        headers=HEADERS,
+
+        params={
+            "client_id":
+                f"eq.{client_id}",
+
+            "domain":
+                f"eq.{domain}"
+        }
+
+    ).json()
+
+    payload = {
+
+        "client_id":
+            client_id,
+
+        "domain":
+            domain,
+
+        "installed":
+            True,
+
+        "last_seen":
+            datetime.utcnow()
+            .isoformat()
+    }
+
+    if existing:
+
+        record_id = (
+            existing[0]["id"]
+        )
+
+        requests.patch(
+
+            f"{SUPABASE_URL}/rest/v1/widget_installations",
+
+            headers=HEADERS,
+
+            params={
+                "id":
+                    f"eq.{record_id}"
+            },
+
+            json=payload
+        )
+
+    else:
+
+        requests.post(
+
+            f"{SUPABASE_URL}/rest/v1/widget_installations",
+
+            headers=HEADERS,
+
+            json=payload
+        )
+
+    return {
+        "success": True
+    }
 
 @app.post("/ask")
 def ask(q: Question, user=Depends(get_current_user)):
