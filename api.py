@@ -4,89 +4,77 @@
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
-from fastapi import UploadFile, File
-from supabase import create_client
+
 import os
-import uuid
-import logging
-import stripe
 import uuid
 import json
 import asyncio
-import bcrypt
-import resend
-import os
-import requests
-from bs4 import BeautifulSoup
-import math
+import logging
+
 from datetime import datetime, timedelta
+from io import BytesIO
+
+import bcrypt
+import requests
+import resend
+import stripe
+
+from bs4 import BeautifulSoup
+from pypdf import PdfReader
+
+from fastapi import (
+    FastAPI,
+    Depends,
+    HTTPException,
+    Request,
+    UploadFile,
+    File
+)
+
+
+from supabase import create_client
+
+
+
+
+from typing import Optional
+
+from app.services.usage_service import (
+    check_limit,
+    get_usage,
+    get_limit,
+    increment_usage
+)
+
+
+
+app = FastAPI()
+
+
 from app.routers.assistants import router as assistants_router
-
-app.include_router(
-    assistants_router
-)
 from app.routers.assistant_knowledge import router as assistant_knowledge_router
-
-app.include_router(
-    assistant_knowledge_router
-)
 from app.routers.assistant_uploads import router as assistant_upload_router
-
-app.include_router(
-
-assistant_upload_router
-
-)
 from app.routers.assistant_prompts import router as assistant_prompts_router
-
-app.include_router(
-    assistant_prompts_router
-)
 from app.routers.assistant_ai_generator import router as ai_generator_router
-
-app.include_router(
-
-ai_generator_router
-
-)
 from app.routers.assistant_widgets import router as assistant_widgets_router
-
-app.include_router(
-    assistant_widgets_router
-)
 from app.routers.assistant_conversations import router as conversations_router
-
-app.include_router(
-
-conversations_router
-
-)
 from app.routers.assistant_leads import router as assistant_leads_router
-
-app.include_router(
-    assistant_leads_router
-)
 from app.routers.assistant_analytics import router as assistant_analytics_router
-
-app.include_router(
-    assistant_analytics_router
-)
 from app.routers.assistant_bookings import router as assistant_bookings_router
-
-app.include_router(
-
-assistant_bookings_router
-
-)
 from app.routers.assistant_branding import router as assistant_branding_router
 
-app.include_router(
-    assistant_branding_router
-)
-from typing import Optional
-from app.services.usage_service import check_limit, increment_usage
-from fastapi import FastAPI, Depends, HTTPException, Request
-app = FastAPI()
+
+app.include_router(assistants_router)
+app.include_router(assistant_knowledge_router)
+app.include_router(assistant_upload_router)
+app.include_router(assistant_prompts_router)
+app.include_router(ai_generator_router)
+app.include_router(assistant_widgets_router)
+app.include_router(conversations_router)
+app.include_router(assistant_leads_router)
+app.include_router(assistant_analytics_router)
+app.include_router(assistant_bookings_router)
+app.include_router(assistant_branding_router)
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from app.services.usage_service import check_limit, get_usage, get_limit
@@ -308,10 +296,13 @@ class Question(BaseModel):
     session_id: Optional[str] = "default"
 
 class WidgetAppearanceUpdate(BaseModel):
+
     client_id: str
-    theme: str | None = None
+
     color: str
+
     name: str
+
     welcome_message: str
 
     position: str
@@ -322,42 +313,73 @@ class WidgetAppearanceUpdate(BaseModel):
 
     font: str
 
+    theme: str | None = None
+
     logo_url: str | None = None
 
     launcher_icon: str | None = None
 
-    theme: str | None = None
     launcher_image: str | None = None
 
 
-class PublicQuestion(BaseModel):
-    question: str
-    assistant_id: str
-    session_id: Optional[str] = "default"
+class DeleteFileRequest(BaseModel):
+
+    file_url: str
+
 
 class ScrapeRequest(BaseModel):
+
     url: str
+
+
+class PublicQuestion(BaseModel):
+
+    client_id: str
+
+    question: str
+
+    session_id: Optional[str] = "default"
 # =========================
 # RATE LIMIT
 # =========================
 RATE_LIMIT = {}
 
-class DeleteFileRequest(BaseModel):
-    file_url: str
 
-def check_rate_limit(client_id):
+def check_rate_limit(key: str):
+
     now = datetime.now()
-    RATE_LIMIT.setdefault(client_id, [])
 
-    RATE_LIMIT[client_id] = [
-        t for t in RATE_LIMIT[client_id]
+    RATE_LIMIT.setdefault(
+
+        key,
+
+        []
+
+    )
+
+    RATE_LIMIT[key] = [
+
+        t
+
+        for t
+
+        in RATE_LIMIT[key]
+
         if now - t < timedelta(minutes=1)
+
     ]
 
-    if len(RATE_LIMIT[client_id]) > 20:
-        raise HTTPException(429, "Too many requests")
+    if len(RATE_LIMIT[key]) >= 20:
 
-    RATE_LIMIT[client_id].append(now)
+        raise HTTPException(
+
+            status_code=429,
+
+            detail="Too many requests"
+
+        )
+
+    RATE_LIMIT[key].append(now)
 
 def verify_captcha(token):
     return True
@@ -615,9 +637,18 @@ def widget_ask(data: WidgetQuestion):
         #
         # 🔥 KNOWLEDGE
         #
+        assistant_id = get_assistant_id_by_client(
+
+            client_id
+
+        )
+
         results = semantic_search(
-            client_id,
+
+            assistant_id,
+
             question
+
         )
 
         context = "\n".join([
@@ -724,6 +755,45 @@ def client_data(user=Depends(get_current_user)):
             status_code=500,
             detail="CLIENT_DATA_ERROR"
         )
+
+def get_assistant_id_by_client(
+
+    client_id: str
+
+):
+
+    response = requests.get(
+
+        f"{SUPABASE_URL}/rest/v1/assistants",
+
+        headers=HEADERS,
+
+        params={
+
+            "client_id":
+
+            f"eq.{client_id}",
+
+            "select":
+
+            "id",
+
+            "limit":"1"
+
+        }
+
+    )
+
+
+    data = response.json()
+
+
+    if not data:
+
+        return None
+
+
+    return data[0]["id"]
 
 # =========================
 # COSINE SIMILARITY
@@ -1131,55 +1201,128 @@ def get_memory(
 # CHAT
 # =========================
 
-def get_client_ai_settings(
+# =========================
+# ASSISTANT HELPERS
+# =========================
+
+def get_assistant_id_by_client(
+
     client_id: str
+
 ):
 
     response = requests.get(
 
-        f"{SUPABASE_URL}/rest/v1/ai_settings",
+        f"{SUPABASE_URL}/rest/v1/assistants",
 
         headers=HEADERS,
 
         params={
+
             "client_id":
-                f"eq.{client_id}",
+
+            f"eq.{client_id}",
 
             "select":
-                "*"
+
+            "id",
+
+            "limit":"1"
+
         }
+
     )
+
 
     data = response.json()
 
-    if len(data) == 0:
+
+    if not data:
+
+        return None
+
+
+    return data[0]["id"]
+
+
+
+
+def get_assistant_ai_settings(
+
+    assistant_id: str
+
+):
+
+    response = requests.get(
+
+        f"{SUPABASE_URL}/rest/v1/assistant_prompts",
+
+        headers=HEADERS,
+
+        params={
+
+            "assistant_id":
+
+            f"eq.{assistant_id}",
+
+            "limit":"1"
+
+        }
+
+    )
+
+
+    data = response.json()
+
+
+    if not data:
 
         return {
 
             "model":
-                "gpt-4o-mini",
+
+            "gpt-4o-mini",
 
             "temperature":
-                0.7,
+
+            0.4,
 
             "language":
-                "Polski",
 
-            "response_length":
-                "Średnia",
+            "Polski",
 
-            "system_prompt":
-                "",
+            "system_prompt":""
 
-            "lead_generation":
-                True
         }
 
-    return data[0]
 
-# =========================
-# ASSISTANT PROMPT
-# =========================
+
+    return {
+
+        "model":
+
+        "gpt-4o-mini",
+
+        "temperature":
+
+        0.4,
+
+        "language":
+
+        "Polski",
+
+        "system_prompt":
+
+        data[0].get(
+
+            "system_prompt",
+
+            ""
+
+        )
+
+    }
+
 
 def get_assistant_prompt(
     assistant_id: str
@@ -1403,8 +1546,30 @@ def ask(q: Question, user=Depends(get_current_user)):
     try:
 
         client_id = user["id"]
-        settings = get_client_ai_settings(
-            client_id
+
+        assistant_id = (
+
+            get_assistant_id_by_client(
+
+                client_id
+
+            )
+
+        )
+
+        if not assistant_id:
+            raise HTTPException(
+
+                404,
+
+                "Assistant not found"
+
+            )
+
+        settings = get_assistant_ai_settings(
+
+            assistant_id
+
         )
         print("CLIENT:", client_id)
 
@@ -1434,9 +1599,27 @@ def ask(q: Question, user=Depends(get_current_user)):
         #
         # KNOWLEDGE
         #
+        assistant_id = get_assistant_id_by_client(
+
+            client_id
+
+        )
+
+        if not assistant_id:
+            raise HTTPException(
+
+                404,
+
+                "Assistant not found"
+
+            )
+
         results = semantic_search(
-            client_id,
+
+            assistant_id,
+
             q.question
+
         )
 
         context = "\n".join([
@@ -1453,7 +1636,8 @@ def ask(q: Question, user=Depends(get_current_user)):
             # SAVE USER MESSAGE
             #
             save_message(
-                client_id,
+
+                assistant_id,
                 q.session_id,
                 "user",
                 q.question
@@ -1463,7 +1647,8 @@ def ask(q: Question, user=Depends(get_current_user)):
             # SAVE AI MESSAGE
             #
             save_message(
-                client_id,
+
+                assistant_id,
                 q.session_id,
                 "assistant",
                 "Brak danych treningowych"
@@ -1478,8 +1663,11 @@ def ask(q: Question, user=Depends(get_current_user)):
         # MEMORY
         #
         memory = get_memory(
-            client_id,
+
+            assistant_id,
+
             q.session_id
+
         )
 
         #
@@ -1591,7 +1779,7 @@ def ask(q: Question, user=Depends(get_current_user)):
         # SAVE USER MESSAGE
         #
         save_message(
-            client_id,
+            assistant_id,
             q.session_id,
             "user",
             q.question
@@ -1601,7 +1789,7 @@ def ask(q: Question, user=Depends(get_current_user)):
         # SAVE AI MESSAGE
         #
         save_message(
-            client_id,
+            assistant_id,
             q.session_id,
             "assistant",
             answer
@@ -1633,11 +1821,19 @@ def ask(q: Question, user=Depends(get_current_user)):
 @app.post("/ask-public")
 async def ask_public(q: PublicQuestion):
 
-    assistant_id = q.assistant_id
+    client_id = q.client_id
 
-    #
-    # ANALYTICS
-    #
+    assistant_id = get_assistant_id_by_client(
+        client_id
+    )
+
+    if not assistant_id:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Assistant not found"
+        )
+
     track_usage_event(
         client_id,
         "public_chat_message"
@@ -1648,91 +1844,120 @@ async def ask_public(q: PublicQuestion):
         "messages"
     )
 
-    if not client_id:
-        raise HTTPException(400, "Missing client_id")
-
-    check_rate_limit(client_id)
+    check_rate_limit(
+        assistant_id
+    )
 
     save_message(
-        client_id,
+        assistant_id,
         q.session_id,
         "user",
         q.question
     )
 
     results = semantic_search(
-
-assistant_id,
-
-q.question
-
-)
-
-    context = "\n".join(
-
-        item["content"]
-
-        for item in results
-
+        assistant_id,
+        q.question
     )
 
+    context = "\n".join([
+        x["content"]
+        for x in results
+    ])
+
     if not context:
+
         async def no_data():
+
             yield json.dumps({
-                "token": "❌ Brak danych"
+
+                "token":
+
+                "❌ Brak wiedzy"
+
             }) + "\n"
 
         return StreamingResponse(
+
             no_data(),
+
             media_type="text/plain"
+
         )
 
     async def generate():
 
         full_answer = ""
 
+        settings = get_assistant_ai_settings(
+            assistant_id
+        )
+
         stream = client.chat.completions.create(
-            model="gpt-4o-mini",
+
+            model=settings["model"],
+
+            temperature=settings["temperature"],
 
             stream=True,
 
             messages=[
-                {
-                    "role": "system",
-                    "content":
-                        settings = get_client_ai_settings(
-client_id
-)
 
-system_message = f"""
+                {
+
+                    "role":"system",
+
+                    "content":f"""
 
 Język:
 
-{settings["language"]}
-
-{settings["system_prompt"]}
+{settings['language']}
 
 Nigdy nie wymyślaj informacji.
 
-Odpowiadaj wyłącznie na podstawie KNOWLEDGE.
+Odpowiadaj wyłącznie na podstawie wiedzy.
 
 """
+
                 },
+
                 {
-                    "role": "user",
+
+                    "role":"user",
+
                     "content":
-                        f"{context}\n\n{q.question}"
+
+                    f"""
+
+KNOWLEDGE:
+
+{context}
+
+
+QUESTION:
+
+{q.question}
+
+"""
+
                 }
+
             ]
+
         )
 
         for chunk in stream:
 
             token = (
+
                 chunk
+
                 .choices[0]
+
                 .delta
+
                 .content
+
             )
 
             if token:
@@ -1740,23 +1965,37 @@ Odpowiadaj wyłącznie na podstawie KNOWLEDGE.
                 full_answer += token
 
                 yield json.dumps({
+
                     "token": token
+
                 }) + "\n"
 
                 await asyncio.sleep(0.01)
 
         save_message(
-            client_id,
+
+            assistant_id,
+
             q.session_id,
+
             "assistant",
+
             full_answer
+
         )
 
-        increment_usage(client_id)
+        increment_usage(
+
+            client_id
+
+        )
 
     return StreamingResponse(
+
         generate(),
+
         media_type="text/plain"
+
     )
 
 # =========================
@@ -2244,23 +2483,35 @@ async def get_widget_history(
 ):
 
     response = (
+
         supabase
+
         .table(
+
             "widget_theme_history"
+
         )
+
         .select("*")
+
         .eq(
 
-            "assistant_id",
+            "client_id",
 
-            assistant_id
+            client_id
 
         )
+
         .order(
+
             "created_at",
+
             desc=True
+
         )
+
         .execute()
+
     )
 
     return response.data
@@ -2291,167 +2542,109 @@ async def delete_widget_history(
 # =========================
 # WEBSITE SCRAPING
 # =========================
-@app.post("/scrape-website")
-def scrape_website(
+@app.post("/scrape")
 
-    data: ScrapeRequest,
+async def scrape_website(
 
-    assistant_id: str
+    assistant_id: str,
+
+    url: str
 
 ):
 
-    try:
 
-        response = requests.get(
+    response = requests.get(
 
-            data.url,
+        url,
 
-            timeout=20,
+        timeout=20
 
-            headers={
+    )
 
-                "User-Agent":
 
-                "Mozilla/5.0"
+    soup = BeautifulSoup(
+
+        response.text,
+
+        "html.parser"
+
+    )
+
+
+    text = soup.get_text(
+
+        separator="\n"
+
+    )
+
+
+    chunks = chunk_text(
+
+        text
+
+    )
+
+
+    saved = 0
+
+
+    for i, chunk in enumerate(
+
+        chunks
+
+    ):
+
+
+        embedding = create_embedding(
+
+            chunk
+
+        )
+
+
+        requests.post(
+
+            f"{SUPABASE_URL}/rest/v1/assistant_knowledge",
+
+            headers=HEADERS,
+
+            json={
+
+                "assistant_id":
+
+                assistant_id,
+
+                "content":
+
+                chunk,
+
+                "embedding":
+
+                embedding,
+
+                "source":
+
+                url,
+
+                "chunk_index":
+
+                i
 
             }
 
         )
 
 
+        saved += 1
 
-        soup = BeautifulSoup(
 
-            response.text,
+    return {
 
-            "lxml"
+        "success": True,
 
-        )
+        "saved": saved
 
-
-
-        for tag in soup([
-
-            "script",
-
-            "style",
-
-            "iframe",
-
-            "noscript"
-
-        ]):
-
-            tag.decompose()
-
-
-
-        text = soup.get_text(
-
-            separator=" ",
-
-            strip=True
-
-        )
-
-
-
-        text = text[:30000]
-
-
-
-        chunks = chunk_text(
-
-            text
-
-        )
-
-
-
-        saved = 0
-
-
-
-        for chunk in chunks:
-
-
-
-            embedding = create_embedding(
-
-                chunk
-
-            )
-
-
-
-            requests.post(
-
-                f"{SUPABASE_URL}/rest/v1/assistant_knowledge",
-
-                headers=HEADERS,
-
-                json={
-
-                    "assistant_id":
-
-                    assistant_id,
-
-
-
-                    "content":
-
-                    chunk,
-
-
-
-                    "embedding":
-
-                    embedding
-
-                }
-
-            )
-
-
-
-            saved += 1
-
-
-
-        return {
-
-            "success": True,
-
-            "chunks": saved,
-
-            "characters": len(text)
-
-        }
-
-
-
-    except Exception as e:
-
-
-
-        print(
-
-            "SCRAPE ERROR:",
-
-            e
-
-        )
-
-
-
-        raise HTTPException(
-
-            500,
-
-            "SCRAPE_FAILED"
-
-        )
-
+    }
 #
 # 🔥 GET LEADS
 #
@@ -2498,129 +2691,324 @@ async def get_leads(
 # AI BRAIN
 # =========================
 
+# =========================
+# ASSISTANT KNOWLEDGE
+# =========================
+
 @app.post("/client/setup")
 def client_setup(
+
     data: dict,
-    user=Depends(get_current_user)
+
+    user=Depends(
+
+        get_current_user
+
+    )
+
 ):
+
     client_id = user["id"]
 
-    text = data.get("text")
 
-    if not text:
-        raise HTTPException(
-            400,
-            "Missing text"
+    assistant_id = (
+
+        get_assistant_id_by_client(
+
+            client_id
+
         )
 
-    chunks = chunk_text(text)
+    )
+
+
+    if not assistant_id:
+
+        raise HTTPException(
+
+            404,
+
+            "Assistant not found"
+
+        )
+
+
+    text = data.get(
+
+        "text"
+
+    )
+
+
+    if not text:
+
+        raise HTTPException(
+
+            400,
+
+            "Missing text"
+
+        )
+
+
+    chunks = chunk_text(
+
+        text
+
+    )
+
 
     saved = 0
 
+
     for chunk in chunks:
 
-        embedding = create_embedding(
-            chunk
+
+        embedding = (
+
+            create_embedding(
+
+                chunk
+
+            )
+
         )
 
+
         requests.post(
-            f"{SUPABASE_URL}/rest/v1/knowledge",
+
+            f"{SUPABASE_URL}/rest/v1/assistant_knowledge",
+
             headers=HEADERS,
+
             json={
-                "client_id": client_id,
-                "content": chunk,
-                "embedding": embedding
+
+                "assistant_id":
+
+                assistant_id,
+
+                "content":
+
+                chunk,
+
+                "embedding":
+
+                embedding
+
             }
+
         )
+
 
         saved += 1
 
+
     return {
+
         "success": True,
+
         "chunks": saved
+
     }
+
 
 
 @app.get("/knowledge")
 def get_knowledge_records(
-    user=Depends(get_current_user)
+
+    user=Depends(
+
+        get_current_user
+
+    )
+
 ):
+
     client_id = user["id"]
 
-    response = requests.get(
-        f"{SUPABASE_URL}/rest/v1/knowledge",
-        headers=HEADERS,
-        params={
-            "client_id": f"eq.{client_id}",
-            "select": "*"
-        }
+
+    assistant_id = (
+
+        get_assistant_id_by_client(
+
+            client_id
+
+        )
+
     )
+
+
+    response = requests.get(
+
+        f"{SUPABASE_URL}/rest/v1/assistant_knowledge",
+
+        headers=HEADERS,
+
+        params={
+
+            "assistant_id":
+
+            f"eq.{assistant_id}",
+
+            "select":
+
+            "*"
+
+        }
+
+    )
+
 
     return response.json()
 
 
+
 @app.get("/knowledge/stats")
 def get_knowledge_stats(
-    user=Depends(get_current_user)
+
+    user=Depends(
+
+        get_current_user
+
+    )
+
 ):
+
     client_id = user["id"]
 
-    response = requests.get(
-        f"{SUPABASE_URL}/rest/v1/knowledge",
-        headers=HEADERS,
-        params={
-            "client_id": f"eq.{client_id}",
-            "select": "id,content"
-        }
+
+    assistant_id = (
+
+        get_assistant_id_by_client(
+
+            client_id
+
+        )
+
     )
+
+
+    response = requests.get(
+
+        f"{SUPABASE_URL}/rest/v1/assistant_knowledge",
+
+        headers=HEADERS,
+
+        params={
+
+            "assistant_id":
+
+            f"eq.{assistant_id}",
+
+            "select":
+
+            "id,content"
+
+        }
+
+    )
+
 
     knowledge = response.json()
 
+
     total_knowledge = len(
+
         knowledge
+
     )
+
 
     total_chars = sum(
+
         len(
+
             item.get(
+
                 "content",
+
                 ""
+
             )
+
         )
+
         for item in knowledge
+
     )
 
-    average_length = 0
 
-    if total_knowledge > 0:
-        average_length = round(
-            total_chars /
+    average_length = (
+
+        round(
+
+            total_chars
+
+            /
+
             total_knowledge
+
         )
 
+        if total_knowledge
+
+        else 0
+
+    )
+
+
     return {
-        "totalKnowledge": total_knowledge,
-        "totalChars": total_chars,
-        "averageLength": average_length
+
+        "totalKnowledge":
+
+        total_knowledge,
+
+        "totalChars":
+
+        total_chars,
+
+        "averageLength":
+
+        average_length
+
     }
+
 
 
 @app.delete("/knowledge/{knowledge_id}")
 def delete_knowledge(
+
     knowledge_id: str,
-    user=Depends(get_current_user)
+
+    user=Depends(
+
+        get_current_user
+
+    )
+
 ):
 
     requests.delete(
-        f"{SUPABASE_URL}/rest/v1/knowledge",
+
+        f"{SUPABASE_URL}/rest/v1/assistant_knowledge",
+
         headers=HEADERS,
+
         params={
-            "id": f"eq.{knowledge_id}"
+
+            "id":
+
+            f"eq.{knowledge_id}"
+
         }
+
     )
 
+
     return {
+
         "success": True
+
     }
 
 # =========================
@@ -2628,6 +3016,7 @@ def delete_knowledge(
 # =========================
 
 @app.post("/upload-ai-document")
+
 async def upload_ai_document(
 
     assistant_id: str,
@@ -2636,139 +3025,119 @@ async def upload_ai_document(
 
 ):
 
-    try:
 
-        content = await file.read()
+    content = await file.read()
 
 
-        text = ""
+    text = ""
 
 
-        # TXT
-        if file.filename.endswith(".txt"):
+    if file.filename.endswith(".pdf"):
 
-            text = content.decode("utf-8")
 
+        pdf = PdfReader(
 
-        # PDF
-        elif file.filename.endswith(".pdf"):
-
-            pdf = PdfReader(
-
-                BytesIO(content)
-
-            )
-
-
-
-            for page in pdf.pages:
-
-                extracted = page.extract_text()
-
-                if extracted:
-
-                    text += extracted + "\n"
-
-
-        else:
-
-            raise HTTPException(
-
-                400,
-
-                "Unsupported file"
-
-            )
-
-
-
-        chunks = chunk_text(text)
-
-
-
-        saved = 0
-
-
-
-        for chunk in chunks:
-
-
-
-            embedding = create_embedding(
-
-                chunk
-
-            )
-
-
-
-            requests.post(
-
-                f"{SUPABASE_URL}/rest/v1/assistant_knowledge",
-
-                headers=HEADERS,
-
-                json={
-
-                    "assistant_id":
-
-                    assistant_id,
-
-
-
-                    "content":
-
-                    chunk,
-
-
-
-                    "embedding":
-
-                    embedding
-
-                }
-
-            )
-
-
-
-            saved += 1
-
-
-
-        return {
-
-            "success": True,
-
-            "chunks": saved,
-
-            "characters": len(text)
-
-        }
-
-
-
-    except Exception as e:
-
-
-
-        print(
-
-            "UPLOAD ERROR:",
-
-            e
+            BytesIO(content)
 
         )
 
 
+        for page in pdf.pages:
 
-        raise HTTPException(
+            text += (
 
-            500,
+                page.extract_text()
 
-            "UPLOAD_FAILED"
+                or ""
+
+            )
+
+
+    else:
+
+
+        text = (
+
+            content
+
+            .decode(
+
+                "utf-8",
+
+                errors="ignore"
+
+            )
 
         )
+
+
+    chunks = chunk_text(
+
+        text
+
+    )
+
+
+    total_saved = 0
+
+
+    for i, chunk in enumerate(
+
+        chunks
+
+    ):
+
+
+        embedding = create_embedding(
+
+            chunk
+
+        )
+
+
+        requests.post(
+
+            f"{SUPABASE_URL}/rest/v1/assistant_knowledge",
+
+            headers=HEADERS,
+
+            json={
+
+                "assistant_id":
+
+                assistant_id,
+
+                "content":
+
+                chunk,
+
+                "embedding":
+
+                embedding,
+
+                "source":
+
+                file.filename,
+
+                "chunk_index":
+
+                i
+
+            }
+
+        )
+
+
+        total_saved += 1
+
+
+    return {
+
+        "success": True,
+
+        "chunks": total_saved
+
+    }
 
 @app.delete("/ai-document/{document_id}")
 def delete_ai_document(
@@ -2781,7 +3150,7 @@ def delete_ai_document(
     #
     requests.delete(
 
-        f"{SUPABASE_URL}/rest/v1/knowledge",
+        f"{SUPABASE_URL}/rest/v1/assistant_knowledge",
 
         headers=HEADERS,
 
@@ -2860,7 +3229,7 @@ def get_ai_settings(
     if len(data) == 0:
 
         return {
-            "model": "gpt-5.5",
+            "model": "gpt-4o-mini",
             "temperature": 0.7,
             "language": "Polski",
             "response_length": "Średnia",
@@ -2895,7 +3264,7 @@ def save_ai_settings(
         "model":
             data.get(
                 "model",
-                "gpt-5.5"
+                "gpt-4o-mini"
             ),
 
         "temperature":

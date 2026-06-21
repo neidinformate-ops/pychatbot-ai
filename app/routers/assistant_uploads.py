@@ -9,7 +9,7 @@ from auth import get_current_user
 import requests
 import os
 
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 from docx import Document
 import tempfile
 
