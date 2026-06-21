@@ -20,9 +20,73 @@ import requests
 from bs4 import BeautifulSoup
 import math
 from datetime import datetime, timedelta
+from app.routers.assistants import router as assistants_router
+
+app.include_router(
+    assistants_router
+)
+from app.routers.assistant_knowledge import router as assistant_knowledge_router
+
+app.include_router(
+    assistant_knowledge_router
+)
+from app.routers.assistant_uploads import router as assistant_upload_router
+
+app.include_router(
+
+assistant_upload_router
+
+)
+from app.routers.assistant_prompts import router as assistant_prompts_router
+
+app.include_router(
+    assistant_prompts_router
+)
+from app.routers.assistant_ai_generator import router as ai_generator_router
+
+app.include_router(
+
+ai_generator_router
+
+)
+from app.routers.assistant_widgets import router as assistant_widgets_router
+
+app.include_router(
+    assistant_widgets_router
+)
+from app.routers.assistant_conversations import router as conversations_router
+
+app.include_router(
+
+conversations_router
+
+)
+from app.routers.assistant_leads import router as assistant_leads_router
+
+app.include_router(
+    assistant_leads_router
+)
+from app.routers.assistant_analytics import router as assistant_analytics_router
+
+app.include_router(
+    assistant_analytics_router
+)
+from app.routers.assistant_bookings import router as assistant_bookings_router
+
+app.include_router(
+
+assistant_bookings_router
+
+)
+from app.routers.assistant_branding import router as assistant_branding_router
+
+app.include_router(
+    assistant_branding_router
+)
 from typing import Optional
 from app.services.usage_service import check_limit, increment_usage
 from fastapi import FastAPI, Depends, HTTPException, Request
+app = FastAPI()
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from app.services.usage_service import check_limit, get_usage, get_limit
@@ -209,7 +273,6 @@ def update_daily_analytics(
 # =========================
 # APP
 # =========================
-app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
@@ -269,7 +332,7 @@ class WidgetAppearanceUpdate(BaseModel):
 
 class PublicQuestion(BaseModel):
     question: str
-    client_id: str
+    assistant_id: str
     session_id: Optional[str] = "default"
 
 class ScrapeRequest(BaseModel):
@@ -340,18 +403,52 @@ def verify_captcha(token):
 # =========================
 # KNOWLEDGE
 # =========================
-def get_knowledge(client_id):
+
+def get_knowledge(assistant_id: str):
+
     try:
-        res = requests.get(
-            f"{SUPABASE_URL}/rest/v1/knowledge",
+
+        response = requests.get(
+
+            f"{SUPABASE_URL}/rest/v1/assistant_knowledge",
+
             headers=HEADERS,
-            params={"client_id": f"eq.{client_id}"}
+
+            params={
+
+                "assistant_id":
+                f"eq.{assistant_id}",
+
+                "select":
+                "content"
+
+            }
+
         )
 
-        return [k["content"] for k in res.json()]
-    except:
-        return []
+        data = response.json()
 
+        return [
+
+            row["content"]
+
+            for row in data
+
+            if row.get("content")
+
+        ]
+
+    except Exception as e:
+
+        print(
+
+            "GET KNOWLEDGE ERROR:",
+
+            e
+
+        )
+
+        return []
 # =========================
 # EMAILS
 # =========================
@@ -631,118 +728,256 @@ def client_data(user=Depends(get_current_user)):
 # =========================
 # COSINE SIMILARITY
 # =========================
-def cosine_similarity(a, b):
+import math
 
-        dot = sum(x * y for x, y in zip(a, b))
 
-        norm_a = math.sqrt(
-            sum(x * x for x in a)
+def cosine_similarity(a,b):
+
+    dot = sum(
+
+        x*y
+
+        for x,y
+
+        in zip(a,b)
+
+    )
+
+
+
+    norm_a = math.sqrt(
+
+        sum(
+
+            x*x
+
+            for x in a
+
         )
 
-        norm_b = math.sqrt(
-            sum(x * x for x in b)
+    )
+
+
+
+    norm_b = math.sqrt(
+
+        sum(
+
+            x*x
+
+            for x in b
+
         )
 
-        if norm_a == 0 or norm_b == 0:
-            return 0
+    )
 
-        return dot / (norm_a * norm_b)
 
+
+    if norm_a == 0 or norm_b == 0:
+
+        return 0
+
+
+
+    return dot / (
+
+        norm_a * norm_b
+
+    )
 # =========================
 # SEMANTIC SEARCH
 # =========================
+
 def semantic_search(
-    client_id: str,
+
+    assistant_id: str,
+
     question: str,
+
     top_k: int = 5
+
 ):
 
-    #
-    # QUESTION EMBEDDING
-    #
-    question_embedding = create_embedding(
-        question
-    )
+    try:
 
-    #
-    # FETCH KNOWLEDGE
-    #
-    res = requests.get(
-        f"{SUPABASE_URL}/rest/v1/knowledge",
+        embedding_response = client.embeddings.create(
 
-        headers=HEADERS,
+            model="text-embedding-3-small",
 
-        params={
-            "client_id":
-            f"eq.{client_id}"
-        }
-    )
+            input=question
 
-    knowledge = res.json()
-    print("KNOWLEDGE:", knowledge)
-    #
-    # SCORE CHUNKS
-    #
-    scored = []
-
-    for item in knowledge:
-
-        embedding = item.get(
-            "embedding"
-        )
-        print("EMBEDDING:", embedding)
-
-        if not embedding:
-            continue
-
-        score = cosine_similarity(
-            question_embedding,
-            embedding
         )
 
-        scored.append({
-            "content":
-            item["content"],
+        query_embedding = (
 
-            "score":
-            score
-        })
+            embedding_response
 
-    #
-    # SORT
-    #
-    scored.sort(
-        key=lambda x: x["score"],
-        reverse=True
-    )
+            .data[0]
 
-    #
-    # TOP RESULTS
-    #
-    return scored[:top_k]
+            .embedding
 
+        )
+
+
+
+        response = requests.get(
+
+            f"{SUPABASE_URL}/rest/v1/assistant_knowledge",
+
+            headers=HEADERS,
+
+            params={
+
+                "assistant_id":
+
+                f"eq.{assistant_id}"
+
+            }
+
+        )
+
+
+
+        chunks = response.json()
+
+
+
+        scored = []
+
+
+
+        for chunk in chunks:
+
+            emb = chunk.get("embedding")
+
+
+
+            if not emb:
+
+                continue
+
+
+
+            score = cosine_similarity(
+
+                query_embedding,
+
+                emb
+
+            )
+
+
+
+            scored.append({
+
+                "content":
+
+                chunk["content"],
+
+                "score":
+
+                score
+
+            })
+
+
+
+        scored.sort(
+
+            key=lambda x:
+
+            x["score"],
+
+            reverse=True
+
+        )
+
+
+
+        return scored[:top_k]
+
+
+
+    except Exception as e:
+
+        print(
+
+            "SEMANTIC SEARCH ERROR:",
+
+            e
+
+        )
+
+        return []
 # =========================
 # SAVE MESSAGE
 # =========================
+
 def save_message(
-    client_id: str,
+
+    assistant_id: str,
+
     session_id: str,
+
     role: str,
+
     content: str
+
 ):
 
-    requests.post(
-        f"{SUPABASE_URL}/rest/v1/messages",
+    try:
 
-        headers=HEADERS,
+        payload = {
 
-        json={
-            "client_id": client_id,
-            "session_id": session_id,
-            "role": role,
-            "text": content
+            "assistant_id":
+
+            assistant_id,
+
+            "session_id":
+
+            session_id,
+
+            "role":
+
+            role,
+
+            "content":
+
+            content,
+
         }
-    )
+
+
+
+        requests.post(
+
+            f"{SUPABASE_URL}/rest/v1/assistant_messages",
+
+            headers={
+
+                **HEADERS,
+
+                "Prefer":
+
+                "return=minimal"
+
+            },
+
+            json=payload
+
+        )
+
+
+
+    except Exception as e:
+
+        print(
+
+            "SAVE MESSAGE ERROR:",
+
+            e
+
+        )
 
 @app.get("/widgets")
 def get_widgets(
@@ -805,56 +1040,92 @@ def create_widget(
     return response.json()
 
 # =========================
-# GET MEMORY
+# MEMORY
 # =========================
+
 def get_memory(
-    client_id: str,
+
+    assistant_id: str,
+
     session_id: str,
-    limit: int = 6
+
+    limit: int = 10
+
 ):
 
-    res = requests.get(
-        f"{SUPABASE_URL}/rest/v1/messages",
+    try:
 
-        headers=HEADERS,
+        response = requests.get(
 
-        params={
-            "client_id":
-                f"eq.{client_id}",
+            f"{SUPABASE_URL}/rest/v1/assistant_messages",
 
-            "session_id":
+            headers=HEADERS,
+
+            params={
+
+                "assistant_id":
+
+                f"eq.{assistant_id}",
+
+                "session_id":
+
                 f"eq.{session_id}",
 
-            "order":
-                "created_at.desc",
+                "order":
 
-            "limit":
-                limit
-        }
-    )
+                "created_at.asc",
 
-    messages = res.json()
+                "limit":
 
-    messages.reverse()
+                str(limit)
 
-    #
-    # kompatybilność ze starym kodem
-    #
-    normalized = []
+            }
 
-    for msg in messages:
-
-        normalized.append({
-            "role":
-                msg.get("role"),
-
-            "content":
-                msg.get("text", "")
-        })
-
-    return normalized
+        )
 
 
+
+        rows = response.json()
+
+
+
+        memory = []
+
+
+
+        for row in rows:
+
+            memory.append({
+
+                "role":
+
+                row["role"],
+
+                "content":
+
+                row["content"]
+
+            })
+
+
+
+        return memory
+
+
+
+    except Exception as e:
+
+        print(
+
+            "GET MEMORY ERROR:",
+
+            e
+
+        )
+
+
+
+        return []
 
 # =========================
 # CHAT
@@ -905,6 +1176,78 @@ def get_client_ai_settings(
         }
 
     return data[0]
+
+# =========================
+# ASSISTANT PROMPT
+# =========================
+
+def get_assistant_prompt(
+    assistant_id: str
+):
+
+    try:
+
+        response = requests.get(
+
+            f"{SUPABASE_URL}/rest/v1/assistant_prompts",
+
+            headers=HEADERS,
+
+            params={
+
+                "assistant_id":
+                f"eq.{assistant_id}",
+
+                "select":
+                "*",
+
+                "limit":
+                "1"
+
+            }
+
+        )
+
+        data = response.json()
+
+        if not data:
+
+            return {
+
+                "system_prompt":"",
+
+                "tone":"Profesjonalny",
+
+                "personality":"Pomocny",
+
+                "restrictions":""
+
+            }
+
+        return data[0]
+
+
+    except Exception as e:
+
+        print(
+
+            "PROMPT ERROR:",
+
+            e
+
+        )
+
+        return {
+
+            "system_prompt":"",
+
+            "tone":"Profesjonalny",
+
+            "personality":"Pomocny",
+
+            "restrictions":""
+
+        }
 
 @app.get(
     "/widget/status"
@@ -1290,7 +1633,7 @@ def ask(q: Question, user=Depends(get_current_user)):
 @app.post("/ask-public")
 async def ask_public(q: PublicQuestion):
 
-    client_id = q.client_id
+    assistant_id = q.assistant_id
 
     #
     # ANALYTICS
@@ -1317,8 +1660,20 @@ async def ask_public(q: PublicQuestion):
         q.question
     )
 
+    results = semantic_search(
+
+assistant_id,
+
+q.question
+
+)
+
     context = "\n".join(
-        get_knowledge(client_id)[:5]
+
+        item["content"]
+
+        for item in results
+
     )
 
     if not context:
@@ -1345,7 +1700,23 @@ async def ask_public(q: PublicQuestion):
                 {
                     "role": "system",
                     "content":
-                        "Odpowiadaj krótko i konkretnie"
+                        settings = get_client_ai_settings(
+client_id
+)
+
+system_message = f"""
+
+Język:
+
+{settings["language"]}
+
+{settings["system_prompt"]}
+
+Nigdy nie wymyślaj informacji.
+
+Odpowiadaj wyłącznie na podstawie KNOWLEDGE.
+
+"""
                 },
                 {
                     "role": "user",
@@ -1879,8 +2250,11 @@ async def get_widget_history(
         )
         .select("*")
         .eq(
-            "client_id",
-            client_id
+
+            "assistant_id",
+
+            assistant_id
+
         )
         .order(
             "created_at",
@@ -1919,102 +2293,163 @@ async def delete_widget_history(
 # =========================
 @app.post("/scrape-website")
 def scrape_website(
+
     data: ScrapeRequest,
-    user=Depends(get_current_user)
+
+    assistant_id: str
+
 ):
-    client_id = user["id"]
 
     try:
 
-        #
-        # 🔥 FETCH WEBSITE
-        #
         response = requests.get(
+
             data.url,
-            timeout=15,
+
+            timeout=20,
+
             headers={
+
                 "User-Agent":
+
                 "Mozilla/5.0"
+
             }
+
         )
 
-        html = response.text
 
-        #
-        # 🔥 PARSE HTML
-        #
+
         soup = BeautifulSoup(
-            html,
+
+            response.text,
+
             "lxml"
+
         )
 
-        #
-        # 🔥 REMOVE JUNK
-        #
+
+
         for tag in soup([
+
             "script",
+
             "style",
-            "noscript",
-            "iframe"
+
+            "iframe",
+
+            "noscript"
+
         ]):
+
             tag.decompose()
 
-        #
-        # 🔥 EXTRACT TEXT
-        #
+
+
         text = soup.get_text(
+
             separator=" ",
+
             strip=True
+
         )
 
-        #
-        # 🔥 LIMIT SIZE
-        #
-        text = text[:15000]
 
-        if len(text) < 100:
-            raise HTTPException(
-                400,
-                "Website contains insufficient content"
-            )
 
-        #
-        # 🔥 CHUNK TEXT
-        #
-        chunks = chunk_text(text)
+        text = text[:30000]
 
-        #
-        # 🔥 SAVE CHUNKS
-        #
+
+
+        chunks = chunk_text(
+
+            text
+
+        )
+
+
+
+        saved = 0
+
+
+
         for chunk in chunks:
+
+
+
             embedding = create_embedding(
+
                 chunk
+
             )
+
+
 
             requests.post(
-                f"{SUPABASE_URL}/rest/v1/knowledge",
+
+                f"{SUPABASE_URL}/rest/v1/assistant_knowledge",
+
                 headers=HEADERS,
+
                 json={
-                    "client_id": client_id,
-                    "content": chunk,
-                    "embedding": embedding
+
+                    "assistant_id":
+
+                    assistant_id,
+
+
+
+                    "content":
+
+                    chunk,
+
+
+
+                    "embedding":
+
+                    embedding
+
                 }
+
             )
 
+
+
+            saved += 1
+
+
+
         return {
+
             "success": True,
-            "chars": len(text)
+
+            "chunks": saved,
+
+            "characters": len(text)
+
         }
+
+
 
     except Exception as e:
 
-        logging.error(
-            f"SCRAPE ERROR: {e}"
+
+
+        print(
+
+            "SCRAPE ERROR:",
+
+            e
+
         )
 
+
+
         raise HTTPException(
+
             500,
+
             "SCRAPE_FAILED"
+
         )
 
 #
@@ -2194,261 +2629,145 @@ def delete_knowledge(
 
 @app.post("/upload-ai-document")
 async def upload_ai_document(
-    file: UploadFile = File(...),
-    user=Depends(get_current_user)
-):
 
-    client_id = user["id"]
+    assistant_id: str,
+
+    file: UploadFile = File(...)
+
+):
 
     try:
 
-        filename = (
-            file.filename or ""
-        ).lower()
+        content = await file.read()
 
-        content = ""
 
-        #
+        text = ""
+
+
         # TXT
-        #
-        if filename.endswith(".txt"):
+        if file.filename.endswith(".txt"):
 
-            raw = await file.read()
+            text = content.decode("utf-8")
 
-            content = raw.decode(
-                "utf-8",
-                errors="ignore"
-            )
 
-        #
         # PDF
-        #
-        elif filename.endswith(".pdf"):
+        elif file.filename.endswith(".pdf"):
 
-            from pypdf import PdfReader
-            import tempfile
+            pdf = PdfReader(
 
-            with tempfile.NamedTemporaryFile(
-                delete=False,
-                suffix=".pdf"
-            ) as temp:
+                BytesIO(content)
 
-                temp.write(
-                    await file.read()
-                )
-
-                temp_path = temp.name
-
-            reader = PdfReader(
-                temp_path
             )
 
-            pages = []
 
-            for page in reader.pages:
 
-                text = (
-                    page.extract_text()
-                    or ""
-                )
+            for page in pdf.pages:
 
-                pages.append(text)
+                extracted = page.extract_text()
 
-            content = "\n".join(
-                pages
-            )
+                if extracted:
 
-        #
-        # DOCX
-        #
-        elif filename.endswith(".docx"):
+                    text += extracted + "\n"
 
-            from docx import Document
-            import tempfile
-
-            with tempfile.NamedTemporaryFile(
-                delete=False,
-                suffix=".docx"
-            ) as temp:
-
-                temp.write(
-                    await file.read()
-                )
-
-                temp_path = temp.name
-
-            doc = Document(
-                temp_path
-            )
-
-            content = "\n".join([
-                p.text
-                for p in doc.paragraphs
-            ])
 
         else:
 
             raise HTTPException(
+
                 400,
-                "Unsupported file type"
+
+                "Unsupported file"
+
             )
 
-        #
-        # VALIDATION
-        #
-        if not content:
 
-            raise HTTPException(
-                400,
-                "Empty document"
-            )
 
-        #
-        # DUPLICATE CHECK
-        #
-        existing_document = requests.get(
+        chunks = chunk_text(text)
 
-            f"{SUPABASE_URL}/rest/v1/ai_documents",
 
-            headers=HEADERS,
-
-            params={
-
-                "client_id":
-                    f"eq.{client_id}",
-
-                "filename":
-                    f"eq.{file.filename}",
-
-                "select":
-                    "id"
-            }
-        )
-
-        existing_data = (
-            existing_document.json()
-        )
-
-        if len(existing_data) > 0:
-            raise HTTPException(
-
-                status_code=409,
-
-                detail=
-                "DOCUMENT_ALREADY_EXISTS"
-            )
-
-        #
-        # CHUNKING
-        #
-        chunks = chunk_text(
-            content
-        )
-
-        #
-        # CREATE DOCUMENT
-        #
-        document_response = requests.post(
-
-            f"{SUPABASE_URL}/rest/v1/ai_documents",
-
-            headers={
-                **HEADERS,
-                "Prefer":
-                    "return=representation"
-            },
-
-            json={
-
-                "client_id":
-                    client_id,
-
-                "filename":
-                    file.filename,
-
-                "file_type":
-                    filename.split(".")[-1],
-
-                "chunks":
-                    len(chunks),
-
-                "characters":
-                    len(content)
-            }
-        )
-
-        document_data = (
-            document_response
-            .json()[0]
-        )
-
-        document_id = (
-            document_data["id"]
-        )
 
         saved = 0
 
-        #
-        # SAVE KNOWLEDGE
-        #
+
+
         for chunk in chunks:
-            embedding = (
-                create_embedding(
-                    chunk
-                )
+
+
+
+            embedding = create_embedding(
+
+                chunk
+
             )
+
+
 
             requests.post(
 
-                f"{SUPABASE_URL}/rest/v1/knowledge",
+                f"{SUPABASE_URL}/rest/v1/assistant_knowledge",
 
                 headers=HEADERS,
 
                 json={
 
-                    "client_id":
-                        client_id,
+                    "assistant_id":
 
-                    "document_id":
-                        document_id,
+                    assistant_id,
+
+
 
                     "content":
-                        chunk,
+
+                    chunk,
+
+
 
                     "embedding":
-                        embedding
+
+                    embedding
+
                 }
+
             )
 
+
+
             saved += 1
+
+
 
         return {
 
             "success": True,
 
-            "document_id":
-                document_id,
+            "chunks": saved,
 
-            "filename":
-                file.filename,
+            "characters": len(text)
 
-            "chunks":
-                saved,
-
-            "characters":
-                len(content)
         }
+
+
 
     except Exception as e:
 
+
+
         print(
-            "DOCUMENT UPLOAD ERROR:",
+
+            "UPLOAD ERROR:",
+
             e
+
         )
 
+
+
         raise HTTPException(
+
             500,
-            str(e)
+
+            "UPLOAD_FAILED"
+
         )
 
 @app.delete("/ai-document/{document_id}")
