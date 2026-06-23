@@ -5,326 +5,198 @@ from auth import get_current_user
 import requests
 import os
 
-
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-
 HEADERS = {
-
     "apikey": SUPABASE_KEY,
-
-    "Authorization":
-        f"Bearer {SUPABASE_KEY}",
-
-    "Content-Type":
-        "application/json"
-
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json"
 }
 
-
 router = APIRouter(
-
     prefix="/assistants",
-
     tags=["Assistants"]
-
 )
-
-
-# -------------------------
-# MODELS
-# -------------------------
 
 
 class AssistantCreate(BaseModel):
 
     name: str
 
-    industry: str | None = None
+    assistant_type: str
+
+    industry_template: str | None = None
 
     description: str | None = None
 
-    website: str | None = None
-
-    phone: str | None = None
-
-    email: str | None = None
-
-    language: str = "pl"
-
+    system_prompt: str | None = None
 
 
 class AssistantUpdate(BaseModel):
-
     name: str | None = None
-
-    industry: str | None = None
-
-    description: str | None = None
-
-    website: str | None = None
-
-    phone: str | None = None
-
-    email: str | None = None
-
-    language: str | None = None
-
+    assistant_type: str | None = None
+    industry_template: str | None = None
     status: str | None = None
 
 
-# -------------------------
-# CREATE
-# -------------------------
-
-
 @router.post("")
-
 def create_assistant(
-
     data: AssistantCreate,
-
     user=Depends(get_current_user)
-
 ):
+
+    print("========== CREATE ASSISTANT ==========")
+    print("USER:")
+    print(user)
 
     payload = {
 
-        "owner_id": user["id"],
+        "client_id": user["id"],
 
         "name": data.name,
 
-        "industry": data.industry,
+        "assistant_type": data.assistant_type,
 
-        "description": data.description,
-
-        "website": data.website,
-
-        "phone": data.phone,
-
-        "email": data.email,
-
-        "language": data.language,
+        "industry_template": data.industry_template,
 
         "status": "active"
 
     }
+
+    print("PAYLOAD:")
+    print(payload)
 
     response = requests.post(
 
         f"{SUPABASE_URL}/rest/v1/assistants",
 
         headers={
-
             **HEADERS,
-
             "Prefer": "return=representation"
-
         },
 
         json=payload
 
     )
 
-    if response.status_code >= 400:
+    print("STATUS:")
+    print(response.status_code)
 
-        raise HTTPException(
-
-            500,
-
-            response.text
-
-        )
-
-    return response.json()[0]
-
-
-# -------------------------
-# GET ALL
-# -------------------------
-
-
-@router.get("")
-
-def get_assistants(
-
-    user=Depends(get_current_user)
-
-):
-
-    response = requests.get(
-
-        f"{SUPABASE_URL}/rest/v1/assistants",
-
-        headers=HEADERS,
-
-        params={
-
-            "user_id":
-                f"eq.{user['id']}",
-
-            "order":
-                "created_at.desc"
-
-        }
-
-    )
+    print("TEXT:")
+    print(response.text)
 
     return response.json()
 
 
-# -------------------------
-# GET ONE
-# -------------------------
-
-
-@router.get("/{assistant_id}")
-
-def get_assistant(
-
-    assistant_id: str,
-
+@router.get("")
+def get_assistants(
     user=Depends(get_current_user)
-
 ):
 
     response = requests.get(
-
         f"{SUPABASE_URL}/rest/v1/assistants",
-
         headers=HEADERS,
-
         params={
-
-            "id":
-                f"eq.{assistant_id}",
-
-            "user_id":
-                f"eq.{user['id']}"
-
+            "client_id": f"eq.{user['id']}",
+            "order": "created_at.desc"
         }
-
     )
+
+    if response.status_code >= 400:
+        raise HTTPException(
+            status_code=500,
+            detail=response.text
+        )
+
+    return response.json()
+
+
+@router.get("/{assistant_id}")
+def get_assistant(
+    assistant_id: str,
+    user=Depends(get_current_user)
+):
+
+    response = requests.get(
+        f"{SUPABASE_URL}/rest/v1/assistants",
+        headers=HEADERS,
+        params={
+            "id": f"eq.{assistant_id}",
+            "client_id": f"eq.{user['id']}"
+        }
+    )
+
+    if response.status_code >= 400:
+        raise HTTPException(
+            status_code=500,
+            detail=response.text
+        )
 
     data = response.json()
 
-    if len(data) == 0:
-
+    if not data:
         raise HTTPException(
-
-            404,
-
-            "Assistant not found"
-
+            status_code=404,
+            detail="Assistant not found"
         )
 
     return data[0]
 
 
-# -------------------------
-# UPDATE
-# -------------------------
-
-
 @router.patch("/{assistant_id}")
-
 def update_assistant(
-
     assistant_id: str,
-
     data: AssistantUpdate,
-
     user=Depends(get_current_user)
-
 ):
 
+    payload = data.model_dump(
+        exclude_none=True
+    )
+
     response = requests.patch(
-
         f"{SUPABASE_URL}/rest/v1/assistants",
-
         headers=HEADERS,
-
         params={
-
-            "id":
-                f"eq.{assistant_id}",
-
-            "user_id":
-                f"eq.{user['id']}"
-
+            "id": f"eq.{assistant_id}",
+            "client_id": f"eq.{user['id']}"
         },
-
-        json=data.model_dump(
-
-            exclude_none=True
-
-        )
-
+        json=payload
     )
 
     if response.status_code >= 400:
-
         raise HTTPException(
-
-            500,
-
-            response.text
-
+            status_code=500,
+            detail=response.text
         )
 
     return {
-
         "success": True
-
     }
 
 
-# -------------------------
-# DELETE
-# -------------------------
-
-
 @router.delete("/{assistant_id}")
-
 def delete_assistant(
-
     assistant_id: str,
-
     user=Depends(get_current_user)
-
 ):
 
     response = requests.delete(
-
         f"{SUPABASE_URL}/rest/v1/assistants",
-
         headers=HEADERS,
-
         params={
-
-            "id":
-                f"eq.{assistant_id}",
-
-            "user_id":
-                f"eq.{user['id']}"
-
+            "id": f"eq.{assistant_id}",
+            "client_id": f"eq.{user['id']}"
         }
-
     )
 
     if response.status_code >= 400:
-
         raise HTTPException(
-
-            500,
-
-            response.text
-
+            status_code=500,
+            detail=response.text
         )
 
     return {
-
         "success": True
-
     }
