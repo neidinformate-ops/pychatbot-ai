@@ -80,13 +80,9 @@ def create_assistant(
 
     )
 
-    print("STATUS:")
-    print(response.status_code)
+    data = response.json()
 
-    print("TEXT:")
-    print(response.text)
-
-    return response.json()
+    return data[0]
 
 
 @router.get("")
